@@ -64,8 +64,7 @@ int virtio_rng_irq_cb(void)	{
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		res = write_to_user(desc, &(u->used[idx]));
 		if(res > 0) {
-			res = virtq_add_buffer(dev, 64, VIRTQ_DESC_F_WRITE, 0, true);
-			ASSERT_TRUE(res == OK, "error");
+			virtq_add_buffer(dev, 64, VIRTQ_DESC_F_WRITE, 0, true);
 			DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
 		}
 		else if(res == 0)	{
