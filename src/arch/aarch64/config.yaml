@@ -1,0 +1,16 @@
+
+aarch64_va_bits:
+  type: int
+  default: 48
+  constraint: "{{value}} == 48"
+  help:
+    Number of bits to use for virtual address (VA). The same value is used for
+    user and kernel mode.
+
+aarch64_page_size:
+  type: int
+  default: 4096
+  constraint: "{{value}} == 4096"
+  help:
+    Number of bytes per page.
+

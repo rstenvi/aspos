@@ -1,0 +1,107 @@
+log_level:
+  type: int
+  default: 1
+  constraint: "{{value}} >= 0 and {{value}} <= 3"
+  help:
+    Log level to use. Level 0 means that everything is logged, which includes a
+    lot of debug information. 1 (info) is sensible during normal development,
+    while 2 (warning) or 3 (error) is meant for production. Fatal errors (4) are
+    always logged.
+
+max_cpus:
+  type: int
+  default: 4
+  constraint: "{{value}} > 0 and {{value}} <= 64"
+  help:
+    The maximum number of CPUs to support. If this number is lower than the
+    number of CPUs present, the extra CPUs will remain powered off. A higher
+    number will reserve some extra memory for CPU data, but the overall impact
+    is limited.
+
+collect_stats:
+  type: bool
+  default: true
+  help:
+    Whether stats about usage of resources should be collected during runtime.
+    This is useful for diagnostics, but it uses up some extra resources (some
+    memory, but mostly CPU time)
+
+exception_stack_blocks:
+  type: int
+  default: 1
+  help:
+    Number of blocks to use for exception stack, i.e. the kernel stack which is
+    used by threads when an interrupt happen.
+
+thread_stack_blocks:
+  type: int
+  default: 2
+  help:
+    Number of blocks to use for thread stack. This is the stack gived to all
+    user threads on the system.
+
+kernel_stack_blocks:
+  type: int
+  default: 1
+  help:
+    Number of blocks to allocate for kernel stack. These blocks are allocated
+    for each CPU core.
+
+max_threads:
+  type: int
+  default: 1024
+  constraint: "math.log2({{value}}).is_integer()"
+  help:
+    Maximum number of concurrent threads. Setting a high value will reserve some
+    extra virtual memory, but uses little extra resources unless the threads
+    become active. Setting a high value is therefore usually a safe option. The
+    value must be a power of 2.
+
+timer_ms_delay:
+  type: int
+  default: 500
+  constraint: "{{value}} > 0"
+  help:
+    The number of milliseconds between each tick interrupt.
+
+early_uart:
+  type: bool
+  default: true
+  help:
+    Early UART is used to print debug information before the system for drivers
+    have been fully set up. Currently, early uart is the method for printing
+    information, so it should be enabled.
+
+exit_as_poweroff:
+  type: bool
+  default: true
+  help:
+    Treat user program exit as a poweroff. This effectively means that when the
+    user-mode program is finished, the computer should turn off. If disabled,
+    exit will be threated as thread_exit. This can make sense, but it can also
+    lead to a system where all threads are finished and the system will never
+    spawn a new thread.
+
+linear_size_mb:
+  type: int
+  default: (1024 * 8)
+  help:
+    Number of MB to use for linear size. This should cover the whole physical
+    memory region. Not covering the whole region has undefined consequences.
+
+max_vmmap_size_mb:
+  type: int
+  default: (1024 * 4)
+  help:
+    Number of MB to reserve for VMMAP. VMMAP is used essentially everywhere we
+    need to allocate one or more pages, stacks, sbrk, etc. The mechanism is also
+    used to allocate physically contiguous memory.
+
+attempt_plug_memory_holes:
+  type: bool
+  default: true
+  help:
+    When allocating memory via VMMAP and the memory does NOT need to be
+    physically contiguous, allocate as single blocks potentially reserving
+    larger contigous blocks for when they are needed. The downside of this is
+    that memory allocations will take slightly longer.
