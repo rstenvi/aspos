@@ -53,9 +53,9 @@ int main(int argc, char* argv[])	{
 //	new_thread( (uint64_t) third_main);
 	printf("Hello userworld!\n");
 
-//	read_random();
+	read_random();
 //	write_block();
-	read_block();
+//	read_block();
 
 	msleep(5000);
 	printf("... and goodbye!\n");

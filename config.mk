@@ -9,7 +9,8 @@ else
 MARCH=armv$(ARMV_MAJOR).$(ARMV_MINOR)-$(ARM_PROFILE)
 endif
 
-UPROG = network
+UPROG = test
+USE_DISK = 0
 
 
 TARGET = aarch64-none-elf
@@ -56,8 +57,9 @@ QEMU_FLAGS += -nographic
 QEMU_FLAGS += -smp 1
 QEMU_FLAGS += -append userargs=test1,test2
 
+ifeq ($(USE_DISK),1)
 QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=disk.img,id=hd0,if=none,format=raw
-
+endif
 
 # RNG device
 QEMU_FLAGS += -object rng-random,filename=/dev/random,id=rng0
