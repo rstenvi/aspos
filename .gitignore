@@ -1,0 +1,12 @@
+*.o
+*.d
+*.swp
+src/include/config.h
+.gdb_history
+src/libaspos.a
+src/disk.img
+src/aspos.elf
+src/arch/aarch64/linker.lds
+aspos.env
+kconfig.yaml
+src/Image
