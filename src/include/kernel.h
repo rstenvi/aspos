@@ -101,11 +101,12 @@ struct NetConfig {
 	uint8_t mac[6];
 };
 
+/*
 struct network_cb {
 	net_type_init_t init;
 	net_type_optset_t optset;
 	net_type_finalize_t finalize;
-};
+};*/
 
 struct dtb_property {
 	char* name;

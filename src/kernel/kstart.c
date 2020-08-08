@@ -1,7 +1,7 @@
 #include "kernel.h"
 
 
-struct os_data __kdata osdata;
+struct os_data osdata;
 
 extern ptr_t KERNEL_START;
 extern ptr_t KERNEL_END;
