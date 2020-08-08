@@ -79,7 +79,7 @@ function check()	{
 function build_compiler()	{
 	echo "This is going to take a while..."
 	pushd ${CROOT}/docker/os
-	docker build --build-arg TARGET=${TARGET} -t ${DOCKERNAME} .
+	docker build --build-arg TARGET=${TARGET} -t ${DOCKERNAME} -f ${DOCKERFILE} .
 	popd
 }
 
