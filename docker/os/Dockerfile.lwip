@@ -1,0 +1,105 @@
+FROM ubuntu:20.04
+
+RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* \
+    && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+ENV LANG en_US.utf8
+
+# Some tools useful for debugging
+RUN apt-get update && apt-get install -y vim
+
+RUN DEBIAN_FRONTEND="noninteractive" apt-get -y install tzdata
+
+RUN apt-get update && apt-get install -y wget build-essential bison flex libgmp3-dev libmpc-dev libmpfr-dev texinfo
+
+WORKDIR /mnt/build
+
+#ARG TARGET=aarch64-none-elf
+ARG TARGET
+
+ENV TARGET=${TARGET}
+ENV PREFIX=/opt/cross
+ENV PATH=${PATH}:${PREFIX}/bin
+ENV PATH=${PATH}:${PREFIX}/${TARGET}/bin
+ENV NEWLIBDIR=${PREFIX}/${TARGET}/lib
+
+ENV BINUTILS_V=2.33.1
+
+# UID and GID should match the host system as these UID and GID will be used as
+# permission on the output files.
+ENV UID="1000"
+ENV GID="1000"
+
+# This can be whathever
+ENV UNAME="aspos"
+ENV GNAME="aspos"
+
+
+RUN mkdir -p ${PREFIX}/${TARGET}
+ENV JOBS=2
+
+RUN wget -c ftp://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_V.tar.bz2 && \
+	tar -xjf binutils-$BINUTILS_V.tar.bz2 && \
+	cd binutils-${BINUTILS_V} && \
+	./configure --prefix=${PREFIX}/$TARGET --target=${TARGET} --disable-werror && \
+	make -j$JOBS && \
+	make install && \
+	rm -rf *
+
+
+
+ENV GCC_V=9.1.0
+ENV NEWLIB_V=3.1.0
+
+RUN mkdir -p buildgcc
+
+RUN wget -c ftp://sourceware.org/pub/gcc/releases/gcc-$GCC_V/gcc-$GCC_V.tar.gz && \
+	tar -xzf gcc-$GCC_V.tar.gz && \
+	cd gcc-${GCC_V} && bash ./contrib/download_prerequisites && cd .. && \
+	wget -c ftp://sourceware.org/pub/newlib/newlib-$NEWLIB_V.tar.gz && \
+	tar -xzf newlib-$NEWLIB_V.tar.gz && \
+	cd buildgcc && \
+	../gcc-$GCC_V/configure --target=$TARGET --prefix=$PREFIX/$TARGET --without-header --with-newlib --with-gnu-as --with-gnu-ld --enable-lto --enable-linker-build-id --disable-libmudflap --disable-libgomp --disable-libssp --disable-libstdcxx-pch --enable-multiarch --disable-multilib --enable-languages=c,c++ --with-headers=../newlib-${NEWLIB_V}/newlib/libc/include --disable-shared && \
+	make all-gcc -j$JOBS && \
+	make all-target-libgcc -j$JOBS && \
+	make install-gcc  && \
+	make install-target-libgcc && \
+	cd .. && \
+	cd newlib-$NEWLIB_V && \
+	CFLAGS="-O2" CXXFLAGS="-O2" ./configure --target=${TARGET} --prefix=${PREFIX} --disable-threads --disable-libssp --disable-werror && \
+	make -j$JOBS  && \
+	make install && \
+	rm -rf * && \
+	cd .. && \
+	cd buildgcc && rm -rf * && \
+	../gcc-$GCC_V/configure --target=$TARGET --prefix=$PREFIX/$TARGET --enable-lto --enable-languages=c,c++ --with-newlib --enable-interwork  --enable-multilib --disable-shared --disable-thread && \
+	make -j$JOBS && \
+	make install && \
+	rm -rf *
+
+RUN apt-get update && apt-get install -y git
+
+#ENV LIBINCLUDE=${PREFIX}/${TARGET}/include
+ADD lwip /opt/lwip-build
+WORKDIR /opt/lwip-build
+RUN git clone git://git.savannah.gnu.org/lwip.git && \
+	cd lwip && \
+	git checkout master && \
+	cd ..
+RUN make liblwip4.a && \
+	cp liblwip4.a $NEWLIBDIR && \
+	cp -r lwip/src/include/lwip/ /opt/cross/aarch64-none-elf/aarch64-none-elf/include/ && \
+	cp include/lwipopts.h /opt/cross/aarch64-none-elf/aarch64-none-elf/include/ && \
+	cp -r include/arch/ /opt/cross/aarch64-none-elf/aarch64-none-elf/include/
+
+
+# Just for prettier printing if we spawn a shell in the container
+RUN printf "${UNAME}:x:${UID}:${GID}:,,,:/app:/bin/bash" >> /etc/passwd
+RUN printf "${GNAME}:x:${GID}:" >> /etc/group
+
+USER ${UID}:${GID}
+
+
+WORKDIR /mnt/src
+
+CMD ["tail", "-f", "/dev/null"]
+
