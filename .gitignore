@@ -7,6 +7,9 @@ src/libaspos.a
 src/disk.img
 src/aspos.elf
 src/arch/aarch64/linker.lds
+src/events
 aspos.env
 kconfig.yaml
+userconfig.mk
+todo.md
 src/Image

@@ -33,14 +33,12 @@ SH_FLAGS += -include config.h
 CFLAGS += -I$(CROOT)/src/include -I$(CROOT)/src/arch/$(ARCH)
 CFLAGS += -g
 CFLAGS += -MMD
-#CFLAGS += -pie
-#CFLAGS += -march=$(MARCH)
 
 #CFLAGS += -Wno-implicit-function-declaration
 #CFLAGS += -O1
 
 ASFLAGS += -I$(CROOT)/src/include
-#ASFLAGS += -march=$(MARCH)
+
 
 ifneq ("$(wildcard $(CROOT)/userconfig.mk)","")
 include $(CROOT)/userconfig.mk
@@ -55,7 +53,15 @@ QEMU_FLAGS += -machine virt
 QEMU_FLAGS += -cpu cortex-a57
 QEMU_FLAGS += -nographic
 QEMU_FLAGS += -smp 1
-QEMU_FLAGS += -append userargs=test1,test2
+
+# Variables which should be defined in userconfig.mk
+ifdef USERARGS
+KERNEL_APPEND += userargs=$(USERARGS)
+endif
+
+ifdef KERNEL_APPEND
+QEMU_FLAGS += -append "$(KERNEL_APPEND)"
+endif
 
 ifeq ($(USE_DISK),1)
 QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=disk.img,id=hd0,if=none,format=raw
