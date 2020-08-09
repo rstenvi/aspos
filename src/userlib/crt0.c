@@ -4,7 +4,7 @@
 extern void _exit(int);
 extern int main ();
  
-void _start() {
+void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	/*
 	* Open stdin, stdout and stderr
 	* If any gets an unexpected result, we exit
@@ -19,7 +19,7 @@ void _start() {
 	err = dup(out);
 	if(err != 2)	_exit(err);
 
-    int ex = main();
+    int ex = main(argc, argv, envp);
     _exit(ex);
 }
 
