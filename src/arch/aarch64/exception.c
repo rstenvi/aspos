@@ -119,6 +119,9 @@ static int handle_svc(struct exception* exc)	{
 		case SYS_LSEEK:
 			ret = thread_lseek(exc->regs[0], exc->regs[1], exc->regs[2]);
 			break;
+		case SYS_DUP:
+			ret = thread_dup(exc->regs[0]);
+			break;
 		default:
 			logw("Unknown syscall %i\n", sysnum);
 			PANIC("");

@@ -62,5 +62,6 @@ int vfs_write(int fd, void* buf, size_t max);
 int vfs_close(int fd);
 int thread_lseek(int fd, off_t offset, int whence);
 off_t vfs_lseek(int fd, off_t offset, int whence);
+int vfs_dup(int oldfd);
 
 #endif

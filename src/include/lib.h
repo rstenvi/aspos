@@ -51,6 +51,8 @@ enum RETURN {
 	SPACE_EMPTY,
 
 	USER_FAULT,
+
+	USER_WAKEUP,
 };
 
 #define OPT_DATALINK_BIT  (1 << 25)
@@ -206,9 +208,7 @@ int yield(void);
 int tsleep(int ticks);
 int msleep(uint64_t ms);
 int new_thread(uint64_t entry, int count, ...);
-
-
-
+int dup(int oldfd);
 
 
 #endif

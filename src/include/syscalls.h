@@ -22,4 +22,7 @@
 #define SYS_SLEEP_MS 13
 
 #define SYS_YIELD 14
+
+#define SYS_DUP 15
+
 #endif

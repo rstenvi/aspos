@@ -22,6 +22,7 @@ SYSCALL new_thread SYS_NEW_THREAD
 SYSCALL msleep SYS_SLEEP_MS
 SYSCALL yield SYS_YIELD
 SYSCALL _open SYS_OPEN
+SYSCALL dup SYS_DUP
 
 .global __trunctfdf2
 __trunctfdf2:

@@ -334,10 +334,7 @@ int thread_close(int fd)	{
 }
 int thread_write(int fd, void* buf, size_t count)	{
 	int res;
-	if(fd == STDOUT || fd == STDERR)	return _write(fd, buf, count);
-	else if(fd > STDERR)	res = vfs_write(fd, buf, count);
-	else					return -1;
-
+	res = vfs_write(fd, buf, count);
 
 	if(res < 0)	_handle_retcode(res);
 
@@ -371,6 +368,13 @@ int thread_lseek(int fd, off_t offset, int whence)	{
 
 	if(res < 0)	_handle_retcode(res);
 
+	return res;
+}
+
+int thread_dup(int fd)	{
+	int res = OK;
+	res = vfs_dup(fd);
+	if(res < 0)	_handle_retcode(res);
 	return res;
 }
 

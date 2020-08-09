@@ -50,6 +50,24 @@ int vfs_open(const char* name, int flags, int mode)	{
 	return generic_open(d, name, flags, mode);
 }
 
+int vfs_dup(int oldfd)	{
+	struct fs_component* d = &(osdata.root);
+	struct vfsopen* o = llist_find(d->opened, oldfd);
+	if(o == NULL)	return -USER_FAULT;
+
+	struct vfsopen* n = (struct vfsopen*)malloc( sizeof(struct vfsopen) );
+	if(n == NULL)	return -MEMALLOC;
+
+	n->tid = current_tid();
+	n->fd = fileid_unique();
+	n->fs = o->fs;
+	n->data = o->data;
+	n->offset = o->offset;
+
+	llist_insert(d->opened, n, n->fd);
+	return n->fd;
+}
+
 int vfs_read(int fd, void* buf, size_t max)	{
 	struct fs_component* d = &(osdata.root);
 	struct vfsopen* o = llist_find(d->opened, fd);

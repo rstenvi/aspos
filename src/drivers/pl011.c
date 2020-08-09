@@ -17,6 +17,9 @@
 #define PL011_OFF_UARTDMACR 0x048
 
 
+#define UARTIFLS_TXIFLSEL_EIGHT 0b000
+#define UARTIFLS_RXIFLSEL_EIGHT (0b000 << 3)
+
 #define PL011_OFF_UARTPeriphID0 0xFE0
 #define PL011_OFF_UARTPeriphID1 0xFE4
 #define PL011_OFF_UARTPeriphID2 0xFE8
@@ -50,6 +53,7 @@
 #define PL011_CR_TXE      (1 << 8)
 #define PL011_CR_LPE      (1 << 7)
 #define PL011_CR_OVSFACT  (1 << 3)
+#define PL011_CR_SIREN    (1 << 1)
 #define PL011_CR_UARTEN   (1 << 0)
 
 
@@ -60,8 +64,28 @@
 
 #define UART_FR_RXFE (1 << 4)
 
+enum CHARDEV_MODE {
+	CHAR_MODE_BYTE = 0,
+	CHAR_MODE_LINE,
+};
+
+struct uart_read {
+	void* uaddr;
+	size_t max;
+	int tid;
+};
+
 struct uart_struct {
 	ptr_t base;
+
+	// Buffer we maintain
+	uint8_t* data;
+	size_t maxdata;
+	size_t firstidx, curridx;
+
+	enum CHARDEV_MODE mode;
+
+	struct uart_read job;
 };
 
 struct uart_struct uart;
@@ -108,12 +132,6 @@ int uart_early_write(const char* str)	{
 }
 #endif
 
-/*
-int uart_early_putc(char c)	{
-	DMAW32(UART_BASE + cpu_linear_offset(), (uint32_t)c);
-}
-*/
-
 static void pl011_flush(ptr_t base)	{
 	// TODO: Implement
 }
@@ -143,23 +161,127 @@ static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk)	{
 	// Fractional baud register
 	DMAW32(base + PL011_OFF_UARTFBRD, (div & 0x3f));
 */
-	// TX = 8 bits, 1 stop bit, no parity, no fifo
-	DMAW32(base + PL011_OFF_UARTLCR_H, PL011_LCRH_WLEN_8);
+
+	// Clear all interrupts
+	DMAW32(base + PL011_OFF_UARTICR, ((1<<11)-1));
+
+//	DMAW32(base + PL011_OFF_UARTDMACR, 1|2|4);
+
+	// Write to PL011_OFF_UARTLCR_H MUST come after IBRD and FBRD
+	// TX = 8 bits, 1 stop bit, no parity, fifo
+	DMAW32(base + PL011_OFF_UARTLCR_H, PL011_LCRH_WLEN_8/* | PL011_LCRH_FEN*/);
 
 	// Enable interrupts for receive, transmit and receive timeout
-	DMAW32(base + PL011_OFF_UARTIMSC, (PL011_IMSC_RXIM | PL011_IMSC_TXIM | PL011_IMSC_RTIM));
+	DMAW32(base + PL011_OFF_UARTIMSC, /*((1<<11)-1)*/(PL011_IMSC_RXIM /*| PL011_IMSC_TXIM*/ | PL011_IMSC_RTIM));
 
+
+	// Interrupt when FIFO is 1/8 full
+//	DMAW32(base + PL011_OFF_UARTIFLS, (UARTIFLS_TXIFLSEL_EIGHT | UARTIFLS_RXIFLSEL_EIGHT));
 
 	// Enable UART
-	DMAW32(base + PL011_OFF_UARTCR, (PL011_CR_UARTEN | PL011_CR_TXE | PL011_CR_RXE));
+	DMAW32(base + PL011_OFF_UARTCR,
+		(PL011_CR_UARTEN | PL011_CR_SIREN | PL011_CR_TXE | PL011_CR_RXE));
 
 
 	pl011_flush(base);
 	return 0;
 }
 
+static int _check_read_job()	{
+
+}
+//int pl011_open(struct vfsopen* o, void* buf, int count)	{
+
+
+static int check_wakeup_read(void)	{
+	// Check if we have any data to send
+	if(uart.curridx <= 0 || uart.firstidx == uart.curridx)	return OK;
+
+	// Check if anyone wants data
+	if(uart.job.tid < 0)	return OK;
+
+	char last = uart.data[uart.curridx-1];
+	int ret = OK;
+
+	
+	if(uart.mode == CHAR_MODE_LINE && last == '\n')	{
+		ret = USER_WAKEUP;
+	}
+	else if( (uart.curridx - uart.firstidx) == uart.job.max)	{
+		ret = USER_WAKEUP;
+	}
+	else if(uart.mode == CHAR_MODE_BYTE)	{
+		ret = USER_WAKEUP;
+	}
+	
+	// If we get here, we should not return to user-mode
+	return ret;
+}
+
+static int perform_read_job(int* res)	{
+	int tid = uart.job.tid;
+	int dataread = (uart.curridx - uart.firstidx);
+	*res = dataread;
+	copy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
+	uart.job.tid = -1;
+	return tid;
+}
+
+int pl011_read(struct vfsopen* o, void* buf, size_t count)	{
+	uart.job.tid = current_tid();
+	uart.job.uaddr = buf;
+	uart.job.max = count;
+
+	int res = check_wakeup_read();
+	if(res == USER_WAKEUP)	{
+		int uret = 0, tid;
+		tid = perform_read_job(&uret);
+		return OK;
+	}
+	return -BLOCK_THREAD;
+}
+
+int pl011_write(struct vfsopen* o, void* buf, size_t count)	{
+	size_t i;
+	char* arr = (char*)buf;
+	mutex_acquire(&uartlock);
+	for(i = 0; i < count; i++)	{
+		DMAW32(uart.base, (uint32_t)(arr[i]));
+	}
+	mutex_release(&uartlock);
+	return count;
+}
+
+int pl011_receive(void)	{
+	uint32_t r = 0;
+	int res;
+	mutex_acquire(&uartlock);
+	DMAR32(uart.base, r);
+
+	char c = (char)(r & 0xff);
+	if(c == '\r')	c = '\n';
+	uart.data[uart.curridx++] = c;
+
+	res = check_wakeup_read();
+
+
+	if(res == USER_WAKEUP)	{
+		int dataread = 0;
+		int tid = perform_read_job(&dataread);
+		mutex_release(&uartlock);
+		thread_wakeup(tid, dataread);
+	}
+	mutex_release(&uartlock);
+	return OK;
+}
+
 int pl011_irq_cb(void)	{
-	while(1);
+	uint32_t r = 0;
+	DMAR32(uart.base + PL011_OFF_UARTMIS, r);
+	if(FLAG_SET(r, PL011_IMSC_RXIM))	{
+		pl011_receive();
+	}
+	DMAW32(uart.base + PL011_OFF_UARTICR, r);
 }
 
 static int _pl011_irq_init(int type, int irqno, int irqflags)	{
@@ -173,15 +295,33 @@ static int _pl011_irq_init(int type, int irqno, int irqflags)	{
 	return 0;
 }
 
+
+static struct fs_struct consoledev = {
+	.name = "console",
+	.read = pl011_read,
+	.write = pl011_write,
+};
+
+
+
 #define TMP_INTR_TYPE  0
 #define TMP_INTR_IRQNO 1
 #define TMP_INTR_FLAGS 0x04
 
 int init_pl011(void)	{
 	logi("pl011 not ready yet\n");
+
+	uart.data = (uint8_t*)vmmap_alloc_page(PROT_RW, 0);
+	uart.maxdata = PAGE_SIZE;
+	uart.curridx = uart.firstidx = 0;
+	uart.mode = CHAR_MODE_LINE;
+
+	uart.job.tid = -1;
+
 	_init_pl011(uart.base, TMP_BAUD, TMP_CLOCKFREQ);
 	_pl011_irq_init(TMP_INTR_TYPE, TMP_INTR_IRQNO, TMP_INTR_FLAGS);
 
+	device_register(&consoledev);
 	return 0;
 }
 

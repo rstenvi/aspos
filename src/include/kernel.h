@@ -349,8 +349,7 @@ static inline int fileid_unique(void)	{
 	int r = bm_get_first(osdata.fileids);
 	if(r < 0)	return r;
 
-	// 0-2 is reserved for stdin, stdout and stderr
-	return 3 + r;
+	return r;
 }
 static inline void fileid_free(int id)	{
 	bm_clear(osdata.fileids, id - 3);
@@ -572,7 +571,7 @@ int thread_yield(void);
 int thread_open(const char* name, int flags, int mode);
 int thread_read(int fd, void* buf, size_t count);
 int thread_close(int fd);
-
+int thread_dup(int fd);
 
 // -------------------------- elf-load.c --------------------- //
 ptr_t elf_load(void* addr);
