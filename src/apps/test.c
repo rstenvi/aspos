@@ -48,14 +48,28 @@ void read_block(void)	{
 	}
 }
 
+void read_stdin(void)	{
+	char buf[16];
+	int res;
+	memset(buf, 0x00, 16);
+
+	res = read(0, buf, 16);
+	printf("res = %i | buf: %s\n", res, buf);
+}
+
 int main(int argc, char* argv[])	{
+	int i;
 //	new_thread( (uint64_t) second_main, 1, 42);
 //	new_thread( (uint64_t) third_main);
 	printf("Hello userworld!\n");
+	for(i = 0; i < argc; i++)	{
+		printf("argv[%i] = %s\n", i, argv[i]);
+	}
 
-	read_random();
+//	read_random();
 //	write_block();
 //	read_block();
+//	read_stdin();
 
 	msleep(5000);
 	printf("... and goodbye!\n");
