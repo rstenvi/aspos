@@ -5,6 +5,8 @@
 #include "lib.h"
 #include "lwip/api.h"
 #include "lwip/dhcp.h"
+#include "lwip/netdb.h"
+#include "lwip/dns.h"
 #include "aspos_lwip.h"
 
 #define MAX_WAIT_TICKS 30
@@ -45,6 +47,19 @@ int network_init_dhcp(long flags)	{
 
 	if(FLAG_SET(flags, NET_INIT_DEFAULT_ROUTE))	{
 		netif_set_default(n);
+	}
+
+	if(FLAG_SET(flags, NET_INIT_START_DNS))	{
+		dns_init();
+
+		/*
+		ip_addr_t* q = dns_getserver(0);
+		ip_addr_t res;
+		netconn_gethostbyname("example.com", &res);
+
+		// Had problems using the socket version
+//		struct hostent* h = gethostbyname("example.com");
+		*/
 	}
 
 	return OK;

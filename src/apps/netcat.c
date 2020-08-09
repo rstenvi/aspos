@@ -86,7 +86,7 @@ int main(int argc, char* argv[])	{
 	port = val;
 
 	printf("Attempting to initialize network\n");
-	res = network_init_dhcp(NET_INIT_DEFAULT_ROUTE);
+	res = network_init_dhcp(NET_INIT_DEFAULT_ROUTE | NET_INIT_START_DNS);
 	if(res != OK)	{
 		printf("Net init returned: %i\n", res);
 		exit(1);

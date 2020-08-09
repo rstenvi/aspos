@@ -41,6 +41,7 @@ void aspos_netif_read_loop(void* arg);
 
 // ------------------------ network.c ------------------------------ //
 #define NET_INIT_DEFAULT_ROUTE (1 << 0)
+#define NET_INIT_START_DNS     (1 << 1)
 int network_init_dhcp(long flags);
 
 #endif

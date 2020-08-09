@@ -33,7 +33,9 @@
 #define LWIP_AUTOIP 0
 #define LWIP_SNMP 0
 #define LWIP_IGMP 0
-#define LWIP_DNS 0
+#define LWIP_DNS_SECURE 0
+
+#define LWIP_DNS 1
 #define LWIP_UDP 1
 #define LWIP_SOCKET 1
 #define LWIP_STATS 0
