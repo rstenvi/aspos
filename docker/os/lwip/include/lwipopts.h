@@ -7,7 +7,9 @@
 #define MEM_ALIGNMENT 8U
 
 #define MEM_SIZE 4096
-//#define LWIP_COMPAT_MUTEX 1
+
+#define LWIP_COMPAT_MUTEX_ALLOWED 1
+#define LWIP_COMPAT_MUTEX 1
 
 /* These three are needed for DHCP */
 #define LWIP_ARP 1
