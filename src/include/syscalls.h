@@ -25,4 +25,6 @@
 
 #define SYS_DUP 15
 
+#define SYS_GET_CHAR 16
+#define SYS_PUT_CHAR 17
 #endif

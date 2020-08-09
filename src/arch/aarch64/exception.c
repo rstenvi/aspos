@@ -34,7 +34,7 @@ static int handle_irq(struct exception* exc)	{
 	if(irq > 0)	{
 		gic_disable_intr(irq);
 		gic_clear_intr(irq);
-		logi("irq = %i on CPU %i\n", irq, cpu_id());
+		logd("irq = %i on CPU %i\n", irq, cpu_id());
 
 		/**
 		* We enable interrupts before we are actually finished executing.
@@ -121,6 +121,12 @@ static int handle_svc(struct exception* exc)	{
 			break;
 		case SYS_DUP:
 			ret = thread_dup(exc->regs[0]);
+			break;
+		case SYS_GET_CHAR:
+			ret = thread_getchar(exc->regs[0]);
+			break;
+		case SYS_PUT_CHAR:
+			ret = thread_putchar(exc->regs[0], exc->regs[1]);
 			break;
 		default:
 			logw("Unknown syscall %i\n", sysnum);

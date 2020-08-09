@@ -17,6 +17,8 @@ typedef int (*drvfunc_fstat_t)(struct vfsopen*,void*);
 typedef int (*drvfunc_write_t)(struct vfsopen*,void*,size_t);
 typedef int (*drvfunc_read_t)(struct vfsopen*,void*,size_t);
 typedef int (*drvfunc_close_t)(struct vfsopen*);
+typedef int (*drvfunc_getc_t)(struct vfsopen*);
+typedef int (*drvfunc_putc_t)(struct vfsopen*, int);
 typedef off_t (*drvfunc_lseek_t)(struct vfsopen*,off_t,int);
 
 
@@ -39,6 +41,8 @@ struct fs_struct {
 	drvfunc_read_t read;
 	drvfunc_lseek_t lseek;
 	drvfunc_close_t close;
+	drvfunc_getc_t getc;
+	drvfunc_putc_t putc;
 };
 
 struct fs_component {
@@ -63,5 +67,7 @@ int vfs_close(int fd);
 int thread_lseek(int fd, off_t offset, int whence);
 off_t vfs_lseek(int fd, off_t offset, int whence);
 int vfs_dup(int oldfd);
+int vfs_getchar(int fd);
+int vfs_putchar(int fd, int c);
 
 #endif

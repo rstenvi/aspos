@@ -207,10 +207,10 @@ static int check_wakeup_read(void)	{
 	if(uart.mode == CHAR_MODE_LINE && last == '\n')	{
 		ret = USER_WAKEUP;
 	}
-	else if( (uart.curridx - uart.firstidx) == uart.job.max)	{
+	else if(uart.mode == CHAR_MODE_BYTE)	{
 		ret = USER_WAKEUP;
 	}
-	else if(uart.mode == CHAR_MODE_BYTE)	{
+	else if( (uart.curridx - uart.firstidx) >= uart.job.max)	{
 		ret = USER_WAKEUP;
 	}
 	
@@ -222,7 +222,13 @@ static int perform_read_job(int* res)	{
 	int tid = uart.job.tid;
 	int dataread = (uart.curridx - uart.firstidx);
 	*res = dataread;
-	copy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
+	if(uart.mode != CHAR_MODE_BYTE)	{
+		copy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
+		uart.curridx = uart.firstidx = 0;
+	}
+	else	{
+		*res = uart.data[uart.firstidx++];
+	}
 	uart.job.tid = -1;
 	return tid;
 }
@@ -239,6 +245,30 @@ int pl011_read(struct vfsopen* o, void* buf, size_t count)	{
 		return OK;
 	}
 	return -BLOCK_THREAD;
+}
+
+int pl011_getc(struct vfsopen* o)	{
+	int res;
+	uart.mode = CHAR_MODE_BYTE;
+	uart.job.tid = current_tid();
+	uart.job.uaddr = NULL;
+	uart.job.max = 0;
+
+	res = check_wakeup_read();
+	if(res == USER_WAKEUP)	{
+		int uret = 0, tid;
+		tid = perform_read_job(&uret);
+		return OK;
+	}
+	return -BLOCK_THREAD;
+}
+
+int pl011_putc(struct vfsopen* o, int c)	{
+	c &= 0xff;
+	mutex_acquire(&uartlock);
+	DMAW32(uart.base, (uint32_t)(c));
+	mutex_release(&uartlock);
+	return (int)c;
 }
 
 int pl011_write(struct vfsopen* o, void* buf, size_t count)	{
@@ -263,7 +293,6 @@ int pl011_receive(void)	{
 	uart.data[uart.curridx++] = c;
 
 	res = check_wakeup_read();
-
 
 	if(res == USER_WAKEUP)	{
 		int dataread = 0;
@@ -300,6 +329,8 @@ static struct fs_struct consoledev = {
 	.name = "console",
 	.read = pl011_read,
 	.write = pl011_write,
+	.getc = pl011_getc,
+	.putc = pl011_putc,
 };
 
 

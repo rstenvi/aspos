@@ -11,6 +11,13 @@
 #include "types.h"
 
 
+#define STDIN  0
+#define STDOUT 1
+#define STDERR 2
+
+#define FLAG_SET(val,flag) ((val & (flag)) == (flag))
+
+
 // ----------------------- Various enums --------------------- //
 
 /**
@@ -209,6 +216,11 @@ int tsleep(int ticks);
 int msleep(uint64_t ms);
 int new_thread(uint64_t entry, int count, ...);
 int dup(int oldfd);
+int get_char(int fd);
+int put_char(int fd, int c);
+
+// ---------------------------- network.c -------------------------- //
+
 
 
 #endif

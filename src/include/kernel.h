@@ -21,10 +21,6 @@
 
 #define __noreturn __attribute__((noreturn))
 
-#define STDIN  0
-#define STDOUT 1
-#define STDERR 2
-
 
 
 #define THREAD_STACK_BOTTOM(tid) \
@@ -32,7 +28,6 @@
 #define THREAD_STACK_TOP(tid) \
 	(THREAD_STACK_BOTTOM(tid) + (CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE))
 
-#define FLAG_SET(val,flag) ((val & (flag)) == (flag))
 
 // kstart.c
 extern struct os_data osdata;
@@ -572,6 +567,8 @@ int thread_open(const char* name, int flags, int mode);
 int thread_read(int fd, void* buf, size_t count);
 int thread_close(int fd);
 int thread_dup(int fd);
+int thread_getchar(int fd);
+int thread_putchar(int fd, int c);
 
 // -------------------------- elf-load.c --------------------- //
 ptr_t elf_load(void* addr);

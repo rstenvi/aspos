@@ -23,6 +23,8 @@ SYSCALL msleep SYS_SLEEP_MS
 SYSCALL yield SYS_YIELD
 SYSCALL _open SYS_OPEN
 SYSCALL dup SYS_DUP
+SYSCALL get_char SYS_GET_CHAR
+SYSCALL put_char SYS_PUT_CHAR
 
 .global __trunctfdf2
 __trunctfdf2:

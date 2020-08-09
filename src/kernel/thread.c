@@ -201,7 +201,7 @@ noschedule:
 }
 
 int thread_tick_sleep(int ticks)	{
-	logi("sleeping %i\n", ticks);
+	logd("sleeping %i\n", ticks);
 	struct threads* allt = cpu_get_threads();
 	struct cpu* c = curr_cpu();
 	struct thread* s = c->running;
@@ -377,6 +377,23 @@ int thread_dup(int fd)	{
 	if(res < 0)	_handle_retcode(res);
 	return res;
 }
+
+int thread_getchar(int fd)	{
+	int res = OK;
+	res = vfs_getchar(fd);
+	if(res < 0)	_handle_retcode(res);
+	return res;
+
+}
+
+
+int thread_putchar(int fd, int c)	{
+	int res = OK;
+	res = vfs_putchar(fd, c);
+	if(res < 0)	_handle_retcode(res);
+	return res;
+}
+
 
 int thread_wakeup(int tid, ptr_t res)	{
 	struct threads* allt = cpu_get_threads();

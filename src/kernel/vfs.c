@@ -133,6 +133,29 @@ int vfs_close(int fd)	{
 	return res;
 }
 
+int vfs_getchar(int fd)	{
+	int res = -USER_FAULT;
+	struct fs_component* d = &(osdata.root);
+	struct vfsopen* o = llist_find(d->opened, fd);
+	if(o == NULL)	return -1;
+
+	if(o->fs->getc != NULL)	res = o->fs->getc(o);
+
+	return res;
+}
+
+int vfs_putchar(int fd, int c)	{
+	int res = -USER_FAULT;
+	struct fs_component* d = &(osdata.root);
+	struct vfsopen* o = llist_find(d->opened, fd);
+	if(o == NULL)	return -1;
+
+	if(o->fs->putc != NULL)	res = o->fs->putc(o, c);
+
+	return res;
+}
+
+
 int init_vfs(void)	{
 	struct fs_component* d = &(osdata.root);
 	strcpy(d->name, "/");
