@@ -4,19 +4,16 @@
 #include "lwip/sys.h"
 
 err_t sys_sem_new(sys_sem_t *sem, u8_t count)	{
-	printf("%s\n", __func__);
 	*sem = sem_new(count);
 
 	return ERR_OK;
 }
 
 void sys_sem_signal(sys_sem_t *sem)	{
-	printf("%s\n", __func__);
 	sem_signal(*sem);
 }
 
 uint32_t sys_arch_sem_wait(sys_sem_t *sem, uint32_t timeout)	{
-	printf("%s\n", __func__);
 	// Return SYS_ARCH_TIMEOUT on timeout
 	signed long count = timeout;
 	int ret;
@@ -35,6 +32,5 @@ uint32_t sys_arch_sem_wait(sys_sem_t *sem, uint32_t timeout)	{
 }
 
 void sys_sem_free(sys_sem_t *sem)	{
-	printf("%s\n", __func__);
 	sem_free(*sem);
 }

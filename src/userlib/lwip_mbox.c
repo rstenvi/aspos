@@ -12,7 +12,6 @@ struct sys_mbox {
 };
 
 err_t sys_mbox_new(sys_mbox_t *mbox, int size)	{
-	printf("%s\n", __func__);
 	struct sys_mbox* m;
 	m = (struct sys_mbox*)malloc( sizeof(struct sys_mbox) );
 	if(m == NULL)	return ERR_MEM;
@@ -44,7 +43,6 @@ static err_t _sys_mbox_check_space(sys_mbox_t *mbox)	{
 }
  
 void sys_mbox_post(sys_mbox_t *mbox, void *msg)	{
-	printf("%s\n", __func__);
 	struct sys_mbox* m = *mbox;
 	/*if(m->numitems == m->maxitems)	{
 		printf("full, temporarily fatal\n");
@@ -61,20 +59,17 @@ void sys_mbox_post(sys_mbox_t *mbox, void *msg)	{
 }
  
 err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg)	{
-	printf("%s\n", __func__);
 	/* todo: Unsure if this can cause problems */
 	sys_mbox_post(mbox, msg);
 	return ERR_OK;
 }
  
 err_t sys_mbox_trypost_fromisr(sys_mbox_t *mbox, void *msg)	{
-	printf("%s\n", __func__);
 	return sys_mbox_trypost(mbox, msg);
 }
  
  
 uint32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)	{
-	printf("%s\n", __func__);
 	struct sys_mbox* m = *mbox;
 	if(m->numitems == 0)	return SYS_MBOX_EMPTY;
 
@@ -84,7 +79,6 @@ uint32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)	{
 
 
 uint32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, uint32_t timeout)	{
-	printf("%s\n", __func__);
 	struct sys_mbox* m = *mbox;
 	err_t ret;
 	signed long count = timeout;
@@ -105,7 +99,6 @@ uint32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, uint32_t timeout)	{
 }
  
 void sys_mbox_free(sys_mbox_t *mbox)	{
-	printf("%s\n", __func__);
 	struct sys_mbox* m = *mbox;
 	if(m->data != NULL)	free(m->data);
 }

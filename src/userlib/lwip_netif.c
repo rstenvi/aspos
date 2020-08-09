@@ -22,8 +22,6 @@ void tcp_thread(void* arg)	{
 
 
 err_t aspos_netif_init(struct netif* netif)	{
-	printf("%s\n", __func__);
-
 	netif->output = etharp_output;
 	netif->linkoutput = aspos_netif_link_output;
 	netif->name[0] = 'e';
@@ -52,16 +50,13 @@ err_t aspos_netif_init(struct netif* netif)	{
 	netif_set_up(netif);
 	netif_set_link_up(netif);
 
-	netif_set_default(netif);
 
 	return ERR_OK;
 }
 
 
 err_t aspos_netif_link_output(struct netif *netif, struct pbuf *p)	{
-	printf("%s\n", __func__);
 	struct aspos_ethif* state = (struct aspos_ethif*)(netif->state);
-	printf("Writing %i bytes to fd %i\n", p->tot_len, state->fd);
 
 	int res = write(state->fd, p->payload, p->tot_len);
 	if(res != p->tot_len)	{
@@ -72,7 +67,6 @@ err_t aspos_netif_link_output(struct netif *netif, struct pbuf *p)	{
 
 
 void aspos_netif_read_loop(void* arg)	{
-	printf("%s\n", __func__);
 	char* buf = malloc( 1500 );
 	int bytes = 0;
 	struct netif* n = (struct netif*)arg;
@@ -81,7 +75,6 @@ void aspos_netif_read_loop(void* arg)	{
 
 	while(1)	{
 		bytes = read(ethif->fd, buf, 1500);
-		printf("NETIF: read %i bytes\n", bytes);
 		if(bytes > 0)	{
 			p = pbuf_alloc(PBUF_RAW, bytes, PBUF_POOL);
 			if(p == NULL)	{

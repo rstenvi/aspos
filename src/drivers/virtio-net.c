@@ -99,7 +99,7 @@ static int virtio_net_irq_cb(void)	{
 	struct virtio_dev_struct* dev = &netdev;
 	int res;
 
-	logi("Received IRQ on net\n");
+	logd("Received IRQ on net\n");
 
 	struct virtq_used* u = virtq_get_used(dev, 0);
 
