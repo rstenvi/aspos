@@ -5,9 +5,8 @@ OBJ += syscalls.o
 OBJ += lwip_semaphore.o
 OBJ += lwip_misc.o
 OBJ += lwip_mbox.o
-OBJ += lwip_mutex.o
 OBJ += lwip_netif.o
-
+OBJ += network.o
 
 all: $(OBJ)
 
