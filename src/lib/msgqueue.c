@@ -7,7 +7,7 @@
 struct mq {
 	void** msgs;
 	size_t ccount, mcount;
-	volatile uint8_t lock;
+	mutex_t lock;
 };
 
 int mq_init(struct mq* mq, size_t max)	{

@@ -198,7 +198,7 @@ void* ringbuf_get_data(struct ringbuf* rb, size_t len);
 // ----------------------- semaphore.c ------------------------ //
 
 struct semaphore {
-	volatile uint8_t lock;
+	mutex_t lock;
 	int sem;
 };
 

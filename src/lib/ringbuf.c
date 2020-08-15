@@ -28,11 +28,6 @@ void* ringbuf_get_data(struct ringbuf* rb, size_t len)	{
 	rb->nextfree += len;
 
 	mutex_release(&rb->lock);
-
-	int i;
-	for(i = 0; i < len; i++)	{
-		*((char*)(ret+i)) = 0x00;
-	}
-	//memcpy(ret, 0x00, len);
+	memcpy(ret, 0x00, len);
 	return ret;
 }
