@@ -21,7 +21,7 @@ struct tlist_item {
 struct tlist {
 	struct tlist_item* first;
 	int count;
-	volatile uint8_t lock;
+	mutex_t lock;
 };
 
 /**
