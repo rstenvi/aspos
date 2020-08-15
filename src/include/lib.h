@@ -88,6 +88,7 @@ enum NET_TYPE {
 struct bm {
 	void* bm;
 	unsigned long bytes;
+	mutex_t lock;
 };
 
 
