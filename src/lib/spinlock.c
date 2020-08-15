@@ -17,7 +17,7 @@
 * Returns
 *	:c:type:`OK`
 */
-int mutex_acquire(volatile uint8_t* lock)	{
+int mutex_acquire(mutex_t* lock)	{
 	/*
 	* Description of function froom GCC website:
 	* "This built-in function performs an atomic test-and-set operation on the
@@ -40,7 +40,7 @@ int mutex_acquire(volatile uint8_t* lock)	{
 * Returns:
 *	:c:type:`OK` on success and :c:type:`GENERAL_FAULT` on failure.
 */
-int mutex_try_acquire(volatile uint8_t* lock)	{
+int mutex_try_acquire(mutex_t* lock)	{
 	if(__atomic_test_and_set(lock, __ATOMIC_RELAXED) == true)
 		return -(GENERAL_FAULT);
 
@@ -55,7 +55,7 @@ int mutex_try_acquire(volatile uint8_t* lock)	{
 * Returns:
 *	:c:type:`OK`
 */
-int mutex_release(volatile uint8_t* lock)	{
+int mutex_release(mutex_t* lock)	{
 	__atomic_clear(lock, __ATOMIC_RELAXED);
 	return OK;
 }
@@ -67,7 +67,7 @@ int mutex_release(volatile uint8_t* lock)	{
 * Returns:
 *	:c:type:`OK`
 */
-int mutex_clear(volatile uint8_t* lock)	{
+int mutex_clear(mutex_t* lock)	{
 	__atomic_clear(lock, __ATOMIC_RELAXED);
 	return OK;
 }

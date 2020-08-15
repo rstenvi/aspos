@@ -133,13 +133,13 @@ struct pmm {
 	uint8_t* bitmap;
 	ptr_t start, end;
 	size_t pages;
-	volatile uint8_t lock;
+	mutex_t lock;
 };
 
 struct sbrk {
 	void* addr;
 	size_t curroffset, numpages, mappedpages;
-	volatile uint8_t lock;
+	mutex_t lock;
 };
 
 struct process {
@@ -206,7 +206,7 @@ struct threads {
 	struct process proc;
 
 	/** Lock which determines if any CPU is working on threads. */
-	volatile uint8_t lock;
+	mutex_t lock;
 };
 
 #if CONFIG_COLLECT_STATS > 0
@@ -252,7 +252,7 @@ struct cpu {
 	char* compatible;
 
 	/** Lock which indicates whether this CPU has finished booting */
-	volatile uint8_t readylock;
+	mutex_t readylock;
 
 	/** Current state of the CPU */
 	enum cpu_state state;
@@ -336,7 +336,7 @@ struct os_data {
 
 	struct bm* fileids;
 
-	volatile uint8_t loglock;
+	mutex_t loglock;
 };
 
 
@@ -365,7 +365,7 @@ static inline void stat_inc_taken_page() { }
 static inline void stat_dec_taken_page() { }
 #endif
 
-static inline volatile uint8_t* cpu_loglock() { return &(osdata.loglock); }
+static inline mutex_t* cpu_loglock() { return &(osdata.loglock); }
 static inline struct dtb_node* cpu_get_parsed_dtb() { return osdata.dtbroot; }
 static inline struct pmm* cpu_get_pmm() { return &(osdata.pmm); }
 static inline struct sbrk* cpu_get_kernbrk() { return &(osdata.kernbrk); }

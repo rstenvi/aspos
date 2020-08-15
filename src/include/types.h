@@ -14,7 +14,7 @@ typedef uint16_t tid_t;
 typedef uint64_t ptr_t;
 
 
-
+typedef volatile uint8_t mutex_t;
 
 
 
