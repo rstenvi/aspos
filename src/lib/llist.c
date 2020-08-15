@@ -7,6 +7,7 @@ struct llist* llist_alloc(void)	{
 
 	l->head = NULL;
 	l->count = 0;
+	mutex_clear(&l->lock);
 	return l;
 }
 
@@ -14,6 +15,8 @@ int llist_insert(struct llist* list, void* item, long key)	{
 	struct llist_item* i = (struct llist_item*)malloc(sizeof(struct llist_item));
 	struct llist_item* c = NULL, * p = NULL;
 	if(i == NULL)	return -MEMALLOC;
+
+	mutex_acquire(&list->lock);
 
 	i->data = item;
 	i->key = key;
@@ -38,6 +41,7 @@ int llist_insert(struct llist* list, void* item, long key)	{
 		}
 	}
 	list->count++;
+	mutex_release(&list->lock);
 	return OK;
 }
 
@@ -65,8 +69,16 @@ static void* _llist_find(struct llist* list, long key, bool remove)	{
 }
 
 void* llist_remove(struct llist* list, long key)	{
-	return _llist_find(list, key, true);
+	void* ret = -1;
+	mutex_acquire(&list->lock);
+	ret = _llist_find(list, key, true);
+	mutex_clear(&list->lock);
+	return ret;
 }
 void* llist_find(struct llist* list, long key)	{
-	return _llist_find(list, key, false);
+	void* ret = -1;
+	mutex_acquire(&list->lock);
+	ret = _llist_find(list, key, false);
+	mutex_clear(&list->lock);
+	return ret;
 }

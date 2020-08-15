@@ -170,6 +170,7 @@ struct llist_item {
 struct llist {
 	struct llist_item* head;
 	int count;
+	mutex_t lock;
 };
 
 
