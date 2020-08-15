@@ -17,6 +17,7 @@ int xifo_init(struct XIFO* xifo, size_t max, size_t increment)	{
 	// Array starts as empty
 	xifo->first = xifo->last = 0;
 
+	mutex_clear(&xifo->lock);
 	return OK;
 }
 
@@ -61,7 +62,7 @@ static void xifo_move_up(struct XIFO* xifo)	{
 	xifo->last = xifo->max - 1;
 }
 
-int xifo_push_back(struct XIFO* xifo, void* v)	{
+static int _xifo_push_back(struct XIFO* xifo, void* v)	{
 	if(xifo->last < (xifo->max - 1) )	{
 		xifo->items[xifo->last++] = v;
 		return OK;
@@ -84,7 +85,15 @@ int xifo_push_back(struct XIFO* xifo, void* v)	{
 	}
 }
 
-int xifo_push_front(struct XIFO* xifo, void* v)	{
+int xifo_push_back(struct XIFO* xifo, void* v)	{
+	int res;
+	mutex_acquire(&xifo->lock);
+	res = _xifo_push_back(xifo, v);
+	mutex_release(&xifo->lock);
+	return res;
+}
+
+static int _xifo_push_front(struct XIFO* xifo, void* v)	{
 	if(xifo->first > 0)	{
 		xifo->items[--(xifo->first)] = v;
 		return OK;
@@ -106,15 +115,35 @@ int xifo_push_front(struct XIFO* xifo, void* v)	{
 		return xifo_push_front(xifo, v);
 	}
 }
+int xifo_push_front(struct XIFO* xifo, void* v)	{
+	int res;
+	mutex_acquire(&xifo->lock);
+	res = _xifo_push_front(xifo, v);
+	mutex_release(&xifo->lock);
+	return res;
+}
 
 void* xifo_pop_back(struct XIFO* xifo)	{
-	if(xifo->last == xifo->first)	return NULL;
-	void* ret = xifo->items[--(xifo->last)];
+	void* ret = NULL;
+
+	mutex_acquire(&xifo->lock);
+	if(xifo->last == xifo->first)	goto done;
+
+	ret = xifo->items[--(xifo->last)];
+
+done:
+	mutex_release(&xifo->lock);
 	return ret;
 }
 
 void* xifo_pop_front(struct XIFO* xifo)	{
-	if(xifo->first == xifo->last)	return NULL;
-	void* ret = xifo->items[xifo->first++];
+	void* ret = NULL;
+
+	mutex_acquire(&xifo->lock);
+	if(xifo->first == xifo->last)	goto done;
+	ret = xifo->items[xifo->first++];
+
+done:
+	mutex_release(&xifo->lock);
 	return ret;
 }

@@ -95,6 +95,7 @@ struct bm {
 struct XIFO {
 	void** items;
 	size_t max, first, last, increment;
+	mutex_t lock;
 };
 
 #define ERR_ADDR_PTR(num) (void*)(num)
