@@ -1,5 +1,9 @@
 # aspos
 
+## Current status
+
+In development and unstable.
+
 ## Setting up build environment
 
 The following commands set up several commands and environmental variables.
