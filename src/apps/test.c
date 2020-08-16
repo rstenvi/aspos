@@ -16,7 +16,7 @@ void third_main(void)	{
 void read_random(void)	{
 	char buf[128];
 	int res = 22;
-	int fd = open("/random", 0, 0);
+	int fd = open("/dev/random", 0, 0);
 	if(fd > 0)	{
 		res = read(fd, buf, 80);
 		printf("read %i bytes | bytes[0] = %x\n", res, buf[0]);

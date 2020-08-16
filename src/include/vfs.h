@@ -52,6 +52,7 @@ struct fs_component {
 	struct llist* opened;
 
 	// Should hold things like /dev/
+	size_t numchilds, maxchilds;
 	struct fs_component** childs;
 };
 

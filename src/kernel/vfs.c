@@ -1,7 +1,5 @@
 /**
 * Management of Virtual File System (VFS).
-*
-* todo: Should be generic to handle several subdirs, like /dev/
 */
 
 #include "kernel.h"
@@ -16,9 +14,45 @@ static int vfs_find_name(struct fs_component* d, const char* name)	{
 	return -1;
 }
 
+static const char* vfs_next_node(const char* name)	{
+	char* end = strchr(name, '/');
+	return (end != NULL) ? end : name;
+}
+
+static int _vfs_find_child(struct fs_component* d, const char* name)	{
+	char* end = strchr(name, '/');
+	int len = (end == NULL) ? strlen(name) : (end - name);
+	int i;
+	for(i = 0; i < d->numchilds; i++)	{
+		if(strncmp(d->childs[i]->name, name, len) == 0)	return i;
+	}
+	return -1;
+}
+
+static struct fs_component* vfs_find_child(struct fs_component* d, const char** name)	{
+	*name = *name + strlen(d->name) + 1;
+	const char* rname = (*name);
+	int idx;
+	idx = _vfs_find_child(d, rname);
+	if(idx < 0)	return d;
+
+	return vfs_find_child(d->childs[idx], name);
+}
+
+static int vfs_add_to_open_root(struct vfsopen* n)	{
+	struct fs_component* d = &(osdata.root);
+	llist_insert(d->opened, n, n->fd);
+	return OK;
+}
+
 int generic_open(struct fs_component* d, const char* name, int flags, int mode)	{
-	const char* rname = (name + strlen(d->name));
-	int idx = vfs_find_name(d, rname);
+	int idx;
+	char* rname = name;
+	d = vfs_find_child(d, &rname);
+
+//	const char* rname = (cname + strlen(d->name) + 1);
+
+	idx = vfs_find_name(d, rname);
 	if(idx < 0)	return -(USER_FAULT);
 
 	struct fs_struct* ds = d->subfs[idx];
@@ -40,8 +74,8 @@ int generic_open(struct fs_component* d, const char* name, int flags, int mode)	
 		free(n);
 		return res;
 	}
-
-	llist_insert(d->opened, n, n->fd);
+	
+	vfs_add_to_open_root(n);
 	return n->fd;
 }
 
@@ -156,9 +190,23 @@ int vfs_putchar(int fd, int c)	{
 }
 
 
+int vfs_register_child(struct fs_component* child)	{
+	struct fs_component* d = &(osdata.root);
+	if(d->numchilds == d->maxchilds)	{
+		d->maxchilds += 4;
+		d->childs = (struct fs_component*)realloc(d->childs, (sizeof(void*) * d->maxchilds));
+		ASSERT_FALSE(PTR_IS_ERR(d->childs), "Memory error");
+	}
+
+	d->childs[d->numchilds++] = child;
+	return OK;
+}
+
 int init_vfs(void)	{
 	struct fs_component* d = &(osdata.root);
-	strcpy(d->name, "/");
+
+	// rootfs has no name
+	d->name[0] = 0x00;
 
 	d->opened = llist_alloc();
 	ASSERT_TRUE(d->opened != NULL, "Cannot allocate memory");
@@ -167,3 +215,31 @@ int init_vfs(void)	{
 }
 
 driver_init(init_vfs);
+
+struct fs_component vfs_dev;
+
+int init_vfs_dev(void)	{
+	struct fs_component* d = &(vfs_dev);
+	strcpy(d->name, "dev");
+
+	d->opened = llist_alloc();
+	ASSERT_TRUE(d->opened != NULL, "Cannot allocate memory");
+
+	vfs_register_child(d);
+
+	return OK;
+}
+
+driver_init(init_vfs_dev);
+
+int device_register(struct fs_struct* dev)	{
+	struct fs_component* d = &(vfs_dev);
+	if(d->currdevs >= d->maxdevs)	{
+		d->maxdevs += 10;
+		d->subfs = (struct fs_struct**)realloc(d->subfs, sizeof(void*) * d->maxdevs);
+		ASSERT_TRUE(d->subfs != NULL, "Unable to allocate space for devices");
+	}
+	d->subfs[d->currdevs++] = dev;
+	return OK;
+}
+

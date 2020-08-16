@@ -5,7 +5,7 @@
 #include "lwip/sys.h"
 #include "lwip/sockets.h"
 
-#define ETH_DRIVER "/ethernet"
+#define ETH_DRIVER "/dev/ethernet"
 
 
 /*

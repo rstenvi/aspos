@@ -17,6 +17,8 @@
 
 #define FLAG_SET(val,flag) ((val & (flag)) == (flag))
 
+#define IS_ALIGNED_POW2(val) ((val & (val - 1)) == 0)
+
 
 // ----------------------- Various enums --------------------- //
 

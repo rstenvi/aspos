@@ -10,7 +10,7 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	* If any gets an unexpected result, we exit
 	*/
 	int in, out, err;
-	in = open("/console", 0, 0);
+	in = open("/dev/console", 0, 0);
 	if(in != 0)	_exit(in);
 
 	out = dup(in);

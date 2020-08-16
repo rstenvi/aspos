@@ -599,16 +599,7 @@ char* cmdarg_value(const char* key);
 /**
 * todo: Should have a separate subfs for devices under /dev/
 */
-static inline int device_register(struct fs_struct* dev)	{
-	struct fs_component* d = &(osdata.root);
-	if(d->currdevs >= d->maxdevs)	{
-		d->maxdevs += 10;
-		d->subfs = (struct fs_struct**)realloc(d->subfs, sizeof(void*) * d->maxdevs);
-		ASSERT_TRUE(d->subfs != NULL, "Unable to allocate space for devices");
-	}
-	d->subfs[d->currdevs++] = dev;
-	return OK;
-}
+int device_register(struct fs_struct* dev);
 
 int uart_early_init();
 
