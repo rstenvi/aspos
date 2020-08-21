@@ -70,7 +70,7 @@ static int _xifo_push_back(struct XIFO* xifo, void* v)	{
 	else if(xifo->first > 0)	{
 		// We have space at the front, re-align and try again
 		xifo_move_down(xifo);
-		return xifo_push_back(xifo, v);
+		return _xifo_push_back(xifo, v);
 	}
 	else	{
 		// No more space left, allocate and try again
@@ -81,7 +81,7 @@ static int _xifo_push_back(struct XIFO* xifo, void* v)	{
 		xifo->items = re;
 		xifo->max += xifo->increment;
 
-		return xifo_push_back(xifo, v);
+		return _xifo_push_back(xifo, v);
 	}
 }
 
