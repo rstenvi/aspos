@@ -34,6 +34,7 @@ extern struct os_data osdata;
 
 void panic(const char*, const char*, int);
 #define PANIC(msg) panic(msg, __FILE__, __LINE__)
+#define BUG(msg) panic(msg, __FILE__, __LINE__);
 
 #define MIN(a,b) ((a < b) ? a : b)
 #define MAX(a,b) ((a > b) ? a : b)
@@ -196,6 +197,11 @@ struct threads {
 	* Threads which are blocked waiting on some driver.
 	*/
 	struct llist* blocked;
+
+	/**
+	* Threads waiting on another thread to finish
+	*/
+	struct llist* waittid;
 
 	/**
 	* Information associated with a process / address space.

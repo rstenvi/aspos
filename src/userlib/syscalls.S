@@ -25,6 +25,8 @@ SYSCALL _open SYS_OPEN
 SYSCALL dup SYS_DUP
 SYSCALL get_char SYS_GET_CHAR
 SYSCALL put_char SYS_PUT_CHAR
+SYSCALL wait_tid SYS_WAIT_TID
+SYSCALL get_tid SYS_GET_TID
 
 .global __trunctfdf2
 __trunctfdf2:

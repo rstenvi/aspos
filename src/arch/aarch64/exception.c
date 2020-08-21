@@ -128,6 +128,12 @@ static int handle_svc(struct exception* exc)	{
 		case SYS_PUT_CHAR:
 			ret = thread_putchar(exc->regs[0], exc->regs[1]);
 			break;
+		case SYS_WAIT_TID:
+			ret = thread_wait_tid(exc->regs[0]);
+			break;
+		case SYS_GET_TID:
+			ret = thread_get_tid();
+			break;
 		default:
 			logw("Unknown syscall %i\n", sysnum);
 			PANIC("");

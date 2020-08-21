@@ -24,6 +24,9 @@ int init_threads()	{
 	t->blocked = llist_alloc();
 	ASSERT_FALSE(PTR_IS_ERR(t->blocked), "Unable to allocate list");
 
+	t->waittid = llist_alloc();
+	ASSERT_FALSE(PTR_IS_ERR(t->waittid), "Unable to allocate list");
+
 	t->proc.user_pgd = cpu_get_user_pgd();
 	t->proc.ubrk.numpages = (MB*8) / PAGE_SIZE;
 	t->proc.ubrk.mappedpages = 0;
@@ -241,6 +244,7 @@ int thread_downtick(void)	{
 	mutex_acquire(&allt->lock);
 	struct thread* s = (struct thread*)tlist_downtick(allt->sleeping);
 	if(s != NULL)	{
+		arch_thread_set_return((void*)(s->stackptr), 0);
 		xifo_push_back(allt->ready, s);
 	}
 
@@ -262,6 +266,7 @@ int thread_exit(ptr_t ret)	{
 	struct threads* allt = cpu_get_threads();
 	struct cpu* c = curr_cpu();
 	struct thread* t = c->running;
+	int tid = t->id;
 
 	logi("Destroying thread %i\n", t->id);
 	mutex_acquire(&allt->lock);
@@ -275,6 +280,13 @@ int thread_exit(ptr_t ret)	{
 	);
 
 	free(t);
+
+	while( (t = (struct thread*)llist_remove(allt->waittid, tid)) != NULL)	{
+		logi("Thread %i can wakeup\n", t->id);
+		arch_thread_set_return((void*)(t->stackptr), 0);
+		xifo_push_back(allt->ready, t);
+	}
+
 	mutex_release(&allt->lock);
 	return thread_schedule_next();
 }
@@ -292,7 +304,7 @@ static int block_current(void)	{
 
 	res = llist_insert(allt->blocked, t, t->id);
 	if(res != OK)	{
-		logw("lsit insert returned %i\n", res);
+		logw("list insert returned %i\n", res);
 		PANIC("q");
 	}
 	mutex_release(&allt->lock);
@@ -394,21 +406,64 @@ int thread_putchar(int fd, int c)	{
 	return res;
 }
 
+int thread_get_tid(void)	{
+	return curr_cpu()->running->id;
+}
+
+int thread_wait_tid(int tid)	{
+	struct threads* allt = cpu_get_threads();
+	struct cpu* c = curr_cpu();
+	struct thread* t;
+	int res = OK;
+	mutex_acquire(&allt->lock);
+
+	// If tid has not been allocated, there is nothing to wait for
+	if(bm_index_free(allt->freetids, tid))	{
+		goto done;
+	}
+
+	// We must schedule something new
+	t = c->running;
+	c->running = NULL;
+
+	/*
+	* Insert in list and sort by tid we are waiting on. Because of the way this
+	* list is organized, a thread cannot wait on multiple other threads, but
+	* multiple threads can wait on the same thread. This makes sense as the
+	* problem of waiting on multiple threads can easily be solved in use more.
+	*/
+	res = llist_insert(allt->waittid, t, tid);
+
+	// Release the lock and schedule something else
+	mutex_release(&allt->lock);
+	return thread_schedule_next();
+
+done:
+	mutex_release(&allt->lock);
+	return res;
+}
 
 int thread_wakeup(int tid, ptr_t res)	{
 	struct threads* allt = cpu_get_threads();
-	struct thread* t = llist_remove(allt->blocked, tid);
+	struct thread* t;
 	struct cpu* c = curr_cpu();
-	if(PTR_IS_ERR(t))	return -GENERAL_FAULT;
-
-	arch_thread_set_return((void*)(t->stackptr), res);
+	int ret = OK;
 
 	mutex_acquire(&allt->lock);
 
-	xifo_push_back(allt->ready, t);
-	mutex_release(&allt->lock);
+	t = llist_remove(allt->blocked, tid);
+	if(PTR_IS_ERR(t))	{
+		BUG("Tried to wakeup thread which is not blocked\n");
+		ret = -GENERAL_FAULT;
+		goto done;
+	}
 
-	return OK;
+	arch_thread_set_return((void*)(t->stackptr), res);
+	xifo_push_back(allt->ready, t);
+
+done:
+	mutex_release(&allt->lock);
+	return ret;
 }
 
 /**

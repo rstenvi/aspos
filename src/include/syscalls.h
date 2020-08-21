@@ -27,4 +27,9 @@
 
 #define SYS_GET_CHAR 16
 #define SYS_PUT_CHAR 17
+
+
+#define SYS_WAIT_TID 18
+#define SYS_GET_TID 19
+
 #endif
