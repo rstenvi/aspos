@@ -57,6 +57,7 @@ void arch_dump_regs(void);
 
 ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool user);
 int arch_thread_set_arg(void* sp, ptr_t arg, int num);
+int arch_thread_set_return(void* sp, ptr_t arg);
 int arch_thread_set_exit(void* sp, ptr_t addr);
 void arch_schedule(void* sp);
 

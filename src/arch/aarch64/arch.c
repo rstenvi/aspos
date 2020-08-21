@@ -57,6 +57,12 @@ int arch_thread_set_arg(void* sp, ptr_t arg, int num)	{
 	return 0;
 }
 
+int arch_thread_set_return(void* sp, ptr_t arg)	{
+	struct exception* e = (struct exception*)sp;
+	e->regs[0] = arg;
+	return 0;
+}
+
 int arch_thread_set_exit(void* sp, ptr_t addr)	{
 	struct exception* e = (struct exception*)sp;
 	e->regs[30] = addr;

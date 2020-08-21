@@ -401,8 +401,7 @@ int thread_wakeup(int tid, ptr_t res)	{
 	struct cpu* c = curr_cpu();
 	if(PTR_IS_ERR(t))	return -GENERAL_FAULT;
 
-	// TODO: This should be return, is the same on arm64, but we shouldn't assume that
-	arch_thread_set_arg((void*)(t->stackptr), res, 0);
+	arch_thread_set_return((void*)(t->stackptr), res);
 
 	mutex_acquire(&allt->lock);
 
