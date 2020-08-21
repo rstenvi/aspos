@@ -4,8 +4,14 @@ LDFLAGS += -L$(NEWLIBLOC)
 LDFLAGS += -static
 LDFLAGS += -T aspos-user.ld
 
-all: test network netcat
+OBJ += test.o
+OBJ += network.o
+OBJ += netcat.o
 
+all: $(OBJ) test network netcat
+
+DEPS := $(OBJ:.o=.d)
+-include $(DEPS)
 
 test: test.o
 	 $(LD) $(LDFLAGS) $^ -o $@ -laspos -lc 
@@ -16,8 +22,6 @@ network: network.o
 netcat: netcat.o
 	 $(LD) $(LDFLAGS) $^ -o $@ -llwip4 -laspos -lc
 
-DEPS := $(OBJ:.o=.d)
--include $(DEPS)
 
 clean:
 	-rm -f *.o *.d test network netcat
