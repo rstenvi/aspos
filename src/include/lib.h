@@ -20,6 +20,12 @@
 #define IS_ALIGNED_POW2(val) ((val & (val - 1)) == 0)
 
 
+/** Hold mutex after open */
+#define MUTEX_FLAG_HOLD (1 << 0)
+
+#define MUTEX_RELEASE 0
+#define MUTEX_ACQUIRE 1
+
 // ----------------------- Various enums --------------------- //
 
 /**
@@ -127,7 +133,8 @@ signed long bm_get_first(struct bm* bm);
 void bm_clear(struct bm* bm, long idx);
 void bm_set(struct bm* bm, int from, int to);
 signed long bm_get_first_num(struct bm* bm, int num);
-
+bool bm_index_free(struct bm* bm, int idx);
+bool bm_index_taken(struct bm* bm, int idx);
 
 
 // ------------------------ xifo.c ---------------------------- //
@@ -223,6 +230,8 @@ int new_thread(uint64_t entry, int count, ...);
 int dup(int oldfd);
 int get_char(int fd);
 int put_char(int fd, int c);
+int wait_tid(int tid);
+int get_tid(void);
 
 // ---------------------------- network.c -------------------------- //
 

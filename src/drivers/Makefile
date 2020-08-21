@@ -10,6 +10,7 @@ OBJ += virtio.o
 OBJ += virtio-rng.o
 OBJ += virtio-net.o
 OBJ += virtio-blk.o
+OBJ += mutex.o
 
 all: $(OBJ)
 
