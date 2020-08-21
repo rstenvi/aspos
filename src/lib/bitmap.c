@@ -45,6 +45,15 @@ done:
 	return res;
 }
 
+bool bm_index_free(struct bm* bm, int idx)	{
+	uint8_t* b = (uint8_t*)bm->bm;
+	return !(bit_set(b[idx/8], idx % 8));
+}
+
+bool bm_index_taken(struct bm* bm, int idx)	{
+	return !(bm_index_free(bm, idx));
+}
+
 signed long bm_get_first_num(struct bm* bm, int num)	{
 	uint8_t* b = (uint8_t*)bm->bm;
 	int count = 0, i, j;

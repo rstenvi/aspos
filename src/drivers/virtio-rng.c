@@ -51,7 +51,7 @@ int rng_read(struct vfsopen* o, void* buf, size_t sz)	{
 }
 
 int virtio_rng_irq_cb(void)	{
-	logi("IRQ rng\n");
+	logd("IRQ rng\n");
 	struct virtio_dev_struct* dev = &rngdev;
 	struct virtq_used* u = virtq_get_used(dev, 0);
 	int idx = dev->virtq->queues[0].idx - 1;
