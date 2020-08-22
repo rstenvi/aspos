@@ -1,0 +1,7 @@
+init_random_seed:
+  type: bool
+  default: false
+  help:
+    If true, a random value will be read from /dev/random in crt0.c and
+    configured using srandom(). This is useful if you want to get random numbers
+    from random().
