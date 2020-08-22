@@ -255,11 +255,6 @@ static int init_memory(ptr_t kimage)	{
 
 	// Should use linear offset for DTB from now on
 	osdata.dtb += cpu_linear_offset();
-
-	// GIC
-	// TODO: Should be in gic.c
-	mmu_map_dma(0x08000000, 0x08000000 + 0x20000);
-
 	return OK;
 }
 

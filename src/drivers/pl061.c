@@ -1,6 +1,5 @@
 /**
-* @file pl061.c
-* @description General Purpose Input Output controller for arm
+* General Purpose Input Output controller for arm
 */
 #include "kernel.h"
 
@@ -28,7 +27,7 @@ int init_pl061(void)	{
 	pl061.phandle = dtb_get_int(dtb, "phandle");
 
 	// Get memory region and map it in as DMA
-	dtb_get_as_reg(dtb, &pl061.base, &pl061.length);
+	dtb_get_as_reg(dtb, 0, &pl061.base, &pl061.length);
 	mmu_map_dma(pl061.base, pl061.base + pl061.length);
 
 	pl061.base += cpu_linear_offset();

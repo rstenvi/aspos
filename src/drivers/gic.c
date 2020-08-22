@@ -89,10 +89,6 @@ struct gic_struct gic_struct;
 #define GICD_ICFGR_LEVEL	(0x0)
 #define GICD_ICFGR_EDGE		(0x2)
 
-
-#define TMP_BASE_GICD (ARM64_VA_LINEAR_START + 0x8000000)
-#define TMP_BASE_GICC (ARM64_VA_LINEAR_START + 0x8010000)
-
 static void _gic_set_bit_u32(ptr_t base, uint32_t bit)	{
 	volatile uint32_t val = 0;
 	DMAR32(base + ((bit / 32) * 4), val);
@@ -133,14 +129,14 @@ int gic_ppi_offset(void) { return QEMU_GIC_INTNO_PPIO; }
 int gic_spi_offset(void) { return QEMU_GIC_INTNO_SPIO; }
 
 int gic_set_edge(int irqno)	{
-	ptr_t rbase = TMP_BASE_GICD + GICD_ICFGR;
+	ptr_t rbase = gic_struct.gicd_base + GICD_ICFGR;
 
 	return _gic_mask_reg(rbase, irqno, GICD_ICFGR_EDGE, 2);
 }
 
 int gic_set_priority(int irqno, int pri)	{
 	return _gic_mask_reg(
-		TMP_BASE_GICD + GICD_IPRIORITYR,
+		gic_struct.gicd_base + GICD_IPRIORITYR,
 		irqno,
 		pri,
 		8
@@ -149,15 +145,15 @@ int gic_set_priority(int irqno, int pri)	{
 
 
 void gic_clear_intr(int irq)	{
-	_gic_set_bit_u32(TMP_BASE_GICD + GICD_ICPENDR, irq);
+	_gic_set_bit_u32(gic_struct.gicd_base + GICD_ICPENDR, irq);
 }
 
 void gic_enable_intr(int irq)	{
-	_gic_set_bit_u32(TMP_BASE_GICD + GICD_ISENABLER, irq);
+	_gic_set_bit_u32(gic_struct.gicd_base + GICD_ISENABLER, irq);
 }
 
 void gic_disable_intr(int irq)	{
-	_gic_set_bit_u32(TMP_BASE_GICD + GICD_ICENABLER, irq);
+	_gic_set_bit_u32(gic_struct.gicd_base + GICD_ICENABLER, irq);
 }
 
 int _gicd_init(ptr_t base, int count, int spio, int ppio)	{
@@ -183,14 +179,10 @@ int _gicd_init(ptr_t base, int count, int spio, int ppio)	{
 	// TODO: Same problem as above
 	// Set level-triggered
 	for(i = (ppio / 16); i <= count / 16; i++)	{
-	//	DMAW32(base + GICD_ICFGR + (i * 4), GICD_ICFGR_LEVEL);
-//		DMAW32(base + GICD_ICFGR + (i * 4), 0xaaaaaaaa);	// EDGE
-//		DMAW32(base + GICD_ICFGR + (i * 4), 0x55555555);	// LEVEL+1-N
 		DMAW32(base + GICD_ICFGR + (i * 4), 0x00000000);	// LEVEL
 	}
 
 	DMAW32(base + GICD_CTLR, GICD_CTLR_ENABLE);
-
 	return 0;
 }
 
@@ -224,7 +216,7 @@ int _gicc_init(ptr_t base)	{
 }
 
 int gic_intr_processed(int irq)	{
-	DMAW32(TMP_BASE_GICC + GICC_OFF_EOIR, (uint32_t)irq);
+	DMAW32(gic_struct.gicc_base + GICC_OFF_EOIR, (uint32_t)irq);
 	return 0;
 }
 
@@ -237,12 +229,12 @@ static int gic_max_interrupts(ptr_t base)	{
 
 static bool gic_probe_pending(int irq)	{
 	uint32_t val;
-	DMAR32((ptr_t)TMP_BASE_GICD + GICD_ISPENDR + ((irq / 32) * 4), val);
+	DMAR32((ptr_t)gic_struct.gicd_base + GICD_ISPENDR + ((irq / 32) * 4), val);
 	return ( (val & (1 << (irq % 32))) != 0);
 }
 
 int gic_find_pending(void)	{
-	uint32_t r = DMAR32(TMP_BASE_GICC + GICC_OFF_IAR, r);
+	uint32_t r = DMAR32(gic_struct.gicc_base + GICC_OFF_IAR, r);
 	return (r & 0b1111111111);
 	/*
 	int irq = 0;
@@ -281,32 +273,48 @@ int gic_perform_cb(int irqno)	{
 #define GICD_SGIR_TL_SHIFT     (16)
 int gic_send_sgi_all(int irqno)	{
 	uint32_t t = GICD_SGIR_TLF_ALL_CPUS | irqno;
-	DMAW32(TMP_BASE_GICD + GICD_SGIR, t);
+	DMAW32(gic_struct.gicd_base + GICD_SGIR, t);
 	return 0;
 }
 
 int gic_send_sgi_cpu(int irqno, int cpuid)	{
 	uint32_t t = GICD_SGIR_TLF_CPULIST | (1 << (cpuid + GICD_SGIR_TL_SHIFT)) | irqno;
-	DMAW32(TMP_BASE_GICD + GICD_SGIR, t);
+	DMAW32(gic_struct.gicd_base + GICD_SGIR, t);
 	return 0;
 }
 
 int init_gicd(void)	{
-	int res;
-	ptr_t gicd_base = TMP_BASE_GICD;
-	ptr_t gicc_base = TMP_BASE_GICC;
+	int res, count;
+	ptr_t gicd_base, gicd_len, gicc_base, gicc_len;
+
+	uint32_t* regs;
+	struct dtb_node* gic = dtb_find_name("intc@", false, 0);
+	ASSERT_FALSE(PTR_IS_ERR(gic), "Unable to find gic DTB object");
+
+	if(!dtb_is_compatible(gic, "arm,cortex-a15-gic"))	{
+		printf("driver for gic is not compatible\n");
+		dtb_dump_compatible(gic);
+		PANIC("");
+	}
+	res = dtb_get_as_reg(gic, 0, &gicd_base, &gicd_len);
+	res = dtb_get_as_reg(gic, 1, &gicc_base, &gicc_len);
+
+	mmu_map_dma(gicd_base, gicd_base + gicd_len);
+	mmu_map_dma(gicc_base, gicc_base + gicc_len);
 
 	gic_struct.numcbs = 0;
 	gic_struct.callbacks = NULL;
+	gic_struct.gicd_base = cpu_linear_offset() + gicd_base;
+	gic_struct.gicc_base = cpu_linear_offset() + gicc_base;
 
-	res = _gicd_init(gicd_base, gic_max_interrupts(gicd_base), QEMU_GIC_INTNO_SPIO, QEMU_GIC_INTNO_PPIO);
+	res = _gicd_init(gic_struct.gicd_base, gic_max_interrupts(gic_struct.gicd_base), QEMU_GIC_INTNO_SPIO, QEMU_GIC_INTNO_PPIO);
 	return res;
 }
 
 early_hw_init(init_gicd);
 
 int init_gicc(void)	{
-	int res = _gicc_init(TMP_BASE_GICC);
+	int res = _gicc_init(gic_struct.gicc_base);
 	return res;
 }
 cpucore_init(init_gicc);

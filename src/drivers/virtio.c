@@ -289,7 +289,7 @@ int init_virtio(void)	{
 		if(dtb == NULL)	break;
 		i++;
 
-		dtb_get_as_reg(dtb, &addr, &len);
+		dtb_get_as_reg(dtb, 0, &addr, &len);
 		dtb_get_interrupts(dtb, &tmp.irqtype, &tmp.irqno, &tmp.irqflags);
 
 		if(_init_virtio_dev(addr, len, &tmp) == OK)	{

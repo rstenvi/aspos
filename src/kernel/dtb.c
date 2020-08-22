@@ -403,6 +403,29 @@ int dtb_get_any(struct dtb_node* node, const char* name, enum dtb_type type)	{
 	return -1;
 }
 
+static int _dtb_get_int_len(struct dtb_node* node, const char* name)	{
+	int i;
+	struct dtb_node* curr = node;
+
+	while(curr != NULL)	{
+		i = dtb_get_any(curr, name, NUMBER);
+		if(i >= 0)	{
+			return curr->props[i].val.num;
+		}
+		else	{
+			curr = node->parent;
+		}
+	}
+	logw("Unable to find the length for %s\n", name);
+	return -1;
+}
+
+int dtb_get_addr_cells(struct dtb_node* node)	{ return _dtb_get_int_len(node, "#address-cells"); }
+int dtb_get_size_cells(struct dtb_node* node)	{ return _dtb_get_int_len(node, "#size-cells"); }
+int dtb_get_intr_cells(struct dtb_node* node)	{ return _dtb_get_int_len(node, "#interrupt-cells"); }
+int dtb_get_clock_cells(struct dtb_node* node)	{ return _dtb_get_int_len(node, "#clock-cells"); }
+int dtb_get_gpio_cells(struct dtb_node* node)	{ return _dtb_get_int_len(node, "#gpio-cells"); }
+
 const char* dtb_get_string(struct dtb_node* node, const char* name)	{
 	int i;
 	i = dtb_get_any(node, name, STRING);
@@ -435,13 +458,28 @@ int dtb_get_interrupts(struct dtb_node* node, uint32_t* type, uint32_t* nr, uint
 	return count;
 }
 
-int dtb_get_as_reg(struct dtb_node* node, ptr_t* outaddr, ptr_t* outlen)	{
-	int count;
+int dtb_get_as_reg(struct dtb_node* node, int skip, ptr_t* outaddr, ptr_t* outlen)	{
+	int count, addr_cells, size_cells, cidx = 0;
 	uint32_t* regs = dtb_get_ints(node, "reg", &count);
-	ASSERT_TRUE(count == 4, "Unexpected count");
 
-	*outaddr = regs[1] | (ptr_t)(regs[0]) << 32;
-	*outlen = regs[3] | (ptr_t)(regs[2]) << 32;
+	addr_cells = dtb_get_addr_cells(node);
+	ASSERT_TRUE(addr_cells >= 0 && addr_cells <= 2, "Unexpected addr_cells value");
+
+	size_cells = dtb_get_addr_cells(node);
+	ASSERT_TRUE(size_cells >= 0 && size_cells <= 2, "Unexpected size_cells value");
+
+	cidx = (skip * (addr_cells + size_cells));
+
+	*outaddr = (ptr_t)(regs[cidx++]);
+	if(addr_cells == 2)	{
+		*outaddr <<= 32;
+		*outaddr |= (ptr_t)(regs[cidx++]);
+	}
+	*outlen = (ptr_t)(regs[cidx++]);
+	if(size_cells == 2)	{
+		*outlen <<= 32;
+		*outlen |= (ptr_t)(regs[cidx++]);
+	}
 	return count;
 }
 

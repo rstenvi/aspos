@@ -528,7 +528,7 @@ struct dtb_node* dtb_parse_data(void* dtb);
 struct dtb_node* dtb_find_name(const char* n, bool exact, int skip);
 uint32_t* dtb_get_ints(struct dtb_node* node, const char* name, int* count);
 const char* dtb_get_string(struct dtb_node* node, const char* name);
-int dtb_get_as_reg(struct dtb_node* node, ptr_t* outaddr, ptr_t* outlen);
+int dtb_get_as_reg(struct dtb_node* node, int skip, ptr_t* outaddr, ptr_t* outlen);
 uint32_t dtb_get_int(struct dtb_node* node, const char* name);
 int dtb_get_interrupts(struct dtb_node* node, uint32_t* type, uint32_t* nr, uint32_t* flags);
 
