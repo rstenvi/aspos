@@ -157,6 +157,7 @@ struct sbrk {
 struct process {
 	struct sbrk ubrk;
 	ptr_t user_pgd;
+	struct loaded_exe* exe;
 };
 
 struct tlist;

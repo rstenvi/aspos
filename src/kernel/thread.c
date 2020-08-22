@@ -96,6 +96,7 @@ struct thread* new_thread_kernel(ptr_t entry, bool user, bool addlist)	{
 }
 
 int thread_new_main(struct loaded_exe* exe)	{
+	struct threads* allt = cpu_get_threads();
 	struct thread* t = new_thread_kernel(exe->entry, true, true);
 	if(t == NULL)	PANIC("Create thread\n");
 
@@ -113,6 +114,9 @@ int thread_new_main(struct loaded_exe* exe)	{
 	exe->regions[nidx].start = nextbase;
 	exe->regions[nidx].size = PAGE_SIZE;
 	exe->regions[nidx].prot = PROT_RW;
+
+	// Store pointer to exe loaded
+	allt->proc.exe = exe;
 
 	mmu_map_page(nextbase, PROT_RW);
 	memset((void*)nextbase, 0x00, PAGE_SIZE);

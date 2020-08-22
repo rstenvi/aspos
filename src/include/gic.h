@@ -16,7 +16,7 @@
 
 struct dtb_intr_map {
 	uint32_t type, irqno, flags;
-} __packed;
+} __attribute__((packed));
 
 static inline int gic_dtb_to_irqno(struct dtb_intr_map* intr)	{
 	switch(intr->type)	{
