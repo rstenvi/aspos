@@ -458,9 +458,22 @@ bool dtb_is_compatible(struct dtb_node* n, const char* c)	{
 	if(comp == NULL)	return false;
 
 	while(comp[idx] != 0x00)	{
-		if(strcmp(comp, c) == 0)	return true;
-		idx += strlen(comp) + 1;
+		if(strcmp(&comp[idx], c) == 0)	return true;
+		idx += strlen(&comp[idx]) + 1;
 	}
 	return false;
+}
+
+void dtb_dump_compatible(struct dtb_node* n)	{
+	int idx = 0, count = 0;
+	const char* comp = dtb_get_compatible(n);
+	printf("Compatible:\n");
+	if(comp != NULL)	{
+		while(comp[idx] != 0x00)	{
+			printf("\t%i: %s\n", count, &(comp[idx]));
+			idx += strlen( &(comp[idx]) ) + 1;
+			count++;
+		}
+	}
 }
 

@@ -16,6 +16,6 @@ typedef uint64_t ptr_t;
 
 typedef volatile uint8_t mutex_t;
 
-
+typedef __attribute__((packed)) __packed;
 
 #endif
