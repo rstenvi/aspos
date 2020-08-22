@@ -164,9 +164,9 @@ static void kstart_stage2(void) {
 	mmu_init_user_memory();
 
 	// Load ELF from initrd
-	ptr_t entry = elf_load((void*)(osdata.linear_offset + 0x44000000));
-	logi("entry @ 0x%lx\n", entry);
-	thread_new_main(entry);
+	struct loaded_exe* exe = elf_load((void*)(osdata.linear_offset + 0x44000000));
+	logi("entry @ 0x%lx\n", exe->entry);
+	thread_new_main(exe);
 
 
 	percpu_start();

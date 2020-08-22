@@ -90,6 +90,17 @@ enum dtb_type {
 	INTEGERS,
 };
 
+struct mem_region {
+	ptr_t start, size;
+	enum MEMPROT prot;
+};
+
+struct loaded_exe {
+	int num_regions;
+	struct mem_region* regions;
+	ptr_t entry;
+};
+
 struct NetConfig {
 	ipv4_t addr, gw, dhcpaddr;
 	ipv4_t dnsserver[2];
@@ -557,7 +568,7 @@ void vmmap_unmap(ptr_t vaddr);
 int init_threads();
 struct thread* new_thread_kernel(ptr_t, bool user, bool addlist);
 
-int thread_new_main(ptr_t entry);
+int thread_new_main(struct loaded_exe* exe);
 int mmu_create_linear(ptr_t start, ptr_t end);
 int thread_downtick(void);
 int thread_tick_sleep(int ticks);
@@ -577,7 +588,7 @@ int thread_getchar(int fd);
 int thread_putchar(int fd, int c);
 
 // -------------------------- elf-load.c --------------------- //
-ptr_t elf_load(void* addr);
+struct loaded_exe* elf_load(void* addr);
 
 
 // -------------------------- power.c ------------------------- //

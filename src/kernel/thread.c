@@ -91,22 +91,34 @@ struct thread* new_thread_kernel(ptr_t entry, bool user, bool addlist)	{
 		xifo_push_back(allt->ready, (void*)t);
 	}
 
-//	arch_schedule((void*)(t->stackptr));
 	mutex_release(&allt->lock);
 	return t;
 }
 
-int thread_new_main(ptr_t entry)	{
-	struct thread* t = new_thread_kernel(entry, true, true);
+int thread_new_main(struct loaded_exe* exe)	{
+	struct thread* t = new_thread_kernel(exe->entry, true, true);
 	if(t == NULL)	PANIC("Create thread\n");
 
-// TODO: Define a proper place where this should be stored
-#define USER_ADDR_USE 0x80000000
-	mmu_map_page(USER_ADDR_USE, PROT_RW);
-	memset((void*)USER_ADDR_USE, 0x00, PAGE_SIZE);
+	struct mem_region* last = &(exe->regions[exe->num_regions - 1]);
+
+	// Get the next memory region where we can store parameter data
+	ptr_t nextbase = last->start + last->size;
+	ALIGN_UP_POW2(nextbase, PAGE_SIZE);
+
+	// Add region to struct
+	int nidx = exe->num_regions;
+	exe->num_regions++;
+
+	exe->regions = (struct mem_region*)realloc(exe->regions, sizeof(struct mem_region) * exe->num_regions);
+	exe->regions[nidx].start = nextbase;
+	exe->regions[nidx].size = PAGE_SIZE;
+	exe->regions[nidx].prot = PROT_RW;
+
+	mmu_map_page(nextbase, PROT_RW);
+	memset((void*)nextbase, 0x00, PAGE_SIZE);
 
 	char* argv, * sep;
-	ptr_t* argvptrs = (ptr_t*)USER_ADDR_USE;
+	ptr_t* argvptrs = (ptr_t*)nextbase;
 	int numargs = 0, i, len;
 	void* data;
 	
@@ -118,7 +130,7 @@ int thread_new_main(ptr_t entry)	{
 	}
 
 	// Data starts directly after array of pointers
-	data = (void*)(USER_ADDR_USE + sizeof(ptr_t*) * (numargs + 1));
+	data = (void*)(nextbase + sizeof(ptr_t*) * (numargs + 1));
 
 	strcpy(data, MAIN_EXE_NAME);
 	argvptrs[0] = (ptr_t)data;
@@ -138,7 +150,7 @@ int thread_new_main(ptr_t entry)	{
 	// Set argc and argv
 	// TODO: Also set envp
 	arch_thread_set_arg((void*)(t->stackptr), numargs+1, 0);
-	arch_thread_set_arg((void*)(t->stackptr), USER_ADDR_USE, 1);
+	arch_thread_set_arg((void*)(t->stackptr), nextbase, 1);
 
 	return OK;
 }

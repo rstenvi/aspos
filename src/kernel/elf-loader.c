@@ -95,23 +95,35 @@ bool is_elf(void* addr)	{
 // On Qemu, ramdisk is loaded at 0x44000000
 // which is 2MB below DTB
 // Should look in DTB and /chosen" -> "linux,initrd-start
-ptr_t elf_load(void* addr)	{
+struct loaded_exe* elf_load(void* addr)	{
 	int i;
 	struct elf_sh* shdr;
 	struct elf_ph* phdr;
 	struct elf_hdr* hdr = (struct elf_hdr*)addr;
 	ptr_t curr;
 
-	if(! is_elf(addr))	return -1;
+	struct loaded_exe* exe;
+
+
+	if(! is_elf(addr))	return ERR_ADDR_PTR(-1);
 
 	if(hdr->e_type != ET_EXEC)	{
 		logw("Not an executable file\n");
-		return -1;
+		return ERR_ADDR_PTR(-1);
 	}
 
 	logi("ELF version %i | entry: 0x%x\n", hdr->e_version, hdr->e_entry);
 
-//	shdr = (addr + hdr->e_shoff);
+	exe = (struct loaded_exe*)malloc( sizeof(struct loaded_exe) );
+	ASSERT_FALSE(PTR_IS_ERR(exe), "Unable to allocate memory");
+	memset(exe, 0x00, sizeof(exe));
+
+	// Fill in exe varaibles
+	exe->entry = hdr->e_entry;
+	exe->num_regions = hdr->e_phnum;
+	exe->regions = (struct mem_regions*)malloc( sizeof(struct mem_region) * exe->num_regions);
+	ASSERT_FALSE(PTR_IS_ERR(exe->regions), "Unable to allocate memory");
+
 	phdr = (addr + hdr->e_phoff);
 	for(i = 0; i < hdr->e_phnum; i++)	{
 		logi("\tPH 0x%x 0x%x 0x%x\n",
@@ -131,6 +143,10 @@ ptr_t elf_load(void* addr)	{
 		logi("\tmapping 0x%lx -> 0x%lx\n", rvaddr, rvaddr + msize);
 		mmu_map_pages(rvaddr, msize / PAGE_SIZE, PROT_RWX);
 
+		exe->regions[i].start = rvaddr;
+		exe->regions[i].size = msize;
+		exe->regions[i].prot = PROT_RWX;
+
 		// Start with everything as 0
 		memset((void*)rvaddr, 0x00, msize);
 		copy_to_user((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
@@ -140,5 +156,5 @@ ptr_t elf_load(void* addr)	{
 
 		phdr = (struct elf_ph*)( (ptr_t)phdr + hdr->e_phentsize);
 	}
-	return hdr->e_entry;
+	return exe;
 }
