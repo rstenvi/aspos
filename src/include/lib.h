@@ -26,6 +26,11 @@
 #define MUTEX_RELEASE 0
 #define MUTEX_ACQUIRE 1
 
+
+#define SEMAPHORE_WAIT   1
+#define SEMAPHORE_SIGNAL 0
+
+
 // ----------------------- Various enums --------------------- //
 
 /**

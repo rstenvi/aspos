@@ -100,6 +100,54 @@ void test_mutex(void)	{
 	msleep(100);
 }
 
+void _semaphore_thread(int fd, int count)	{
+	int res, tid, acquired = 0, i, ms = 500;
+	tid = get_tid();
+
+	for(i = 0; i < count; i++)	{
+		res = put_char(fd, SEMAPHORE_WAIT);
+		if(res >= 0)	{
+			printf("Acquired resouorce on thread %i | %i resources left\n", tid, res);
+			acquired++;
+		}
+		ms = random() % 500;
+		printf("Sleeping for %i ms\n", ms);
+		msleep(ms);
+	}
+
+	// Release all resources again
+	for(i = 0; i < acquired; i++)	{
+		printf("Releasing resource %i on thread %i\n", i, tid);
+		put_char(fd, SEMAPHORE_SIGNAL);
+		msleep(500);
+	}
+}
+
+void test_semaphore(void)	{
+	int fd, tid1, tid2;
+	printf("Testing semaphore driver\n");
+	#define NUM_RESOURCES 5
+
+	fd = xopen("/dev/semaphore", 0, NUM_RESOURCES);
+	printf("Opened semaphore @ %i\n", fd);
+
+	tid1 = new_thread( (uint64_t) _semaphore_thread, 2, fd, 3);
+	printf("New thread: %i\n", tid1);
+
+	tid2 = new_thread( (uint64_t) _semaphore_thread, 2, fd, 2);
+	printf("New thread: %i\n", tid2);
+
+	printf("Waiting on tid: %i\n", tid1);
+	wait_tid(tid1);
+
+	printf("Waiting on tid: %i\n", tid2);
+	wait_tid(tid2);
+
+	printf("Threads have finished\n");
+	msleep(100);
+
+}
+
 void write_block(void)	{
 	char buf[16];
 	memset(buf, 0x42, 16);
@@ -135,13 +183,11 @@ void read_stdin(void)	{
 
 void print_usage()	{
 	printf("Place argmument by specifying 'USERARG=cmd' in userconfig.mk\n");
-	printf("Possible arguments: mutex|sleep|random\n");
+	printf("Possible arguments: mutex|semaphore|sleep|random\n");
 }
 
 int main(int argc, char* argv[])	{
 	int i;
-//	new_thread( (uint64_t) second_main, 1, 42);
-//	new_thread( (uint64_t) third_main);
 	printf("Entering user mode\n");
 	if(argc <= 1)	{
 		printf("Did not receive any argument\n");
@@ -159,12 +205,15 @@ int main(int argc, char* argv[])	{
 		printf("Sleeping for %i milliseconds\n", msecs);
 		msleep(msecs);
 	}
-	if(!strcmp(argv[1], "random"))	{
+	else if(!strcmp(argv[1], "random"))	{
 		int count = (argc <= 2) ? 64 : atoi(argv[2]);
 		dump_random(count);
 	}
 	else if(!strcmp(argv[1], "mutex"))	{
 		test_mutex();
+	}
+	else if(!strcmp(argv[1], "semaphore"))	{
+		test_semaphore();
 	}
 	else	{
 		printf("'%s' is not a valid command\n", argv[1]);
