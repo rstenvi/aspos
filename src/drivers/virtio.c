@@ -180,7 +180,7 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	struct virtq_avail* avail;
 	//struct virtq_used* used;
 
-	if(idx > 0)	{
+	if(!updateavail)	{
 		desc = (struct virtq_desc*)(vaddr + ((idx-1) * sizeof(struct virtq_desc)));
 		desc->next = idx;
 		desc->flags |= VIRTQ_DESC_F_NEXT;
@@ -201,6 +201,8 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	}
 
 	vq->queues[queue].idx += 1;
+	dsb();
+
 	return pdata;
 }
 
@@ -308,10 +310,18 @@ int init_virtio(void)	{
 	return 0;
 }
 
+int virtio_intr_status(struct virtio_dev_struct* dev)	{
+	uint32_t res = 0;
+	DMAR32(dev->base + VIRTIO_OFF_INTR_STATUS, res);
+	return res;
+}
+
 int virtio_ack_intr(struct virtio_dev_struct* dev)	{
 	uint32_t res = 0;
 	DMAR32(dev->base + VIRTIO_OFF_INTR_STATUS, res);
-	DMAW32(dev->base + VIRTIO_OFF_INTR_ACK, res);
+	if(res != 0)	{
+		DMAW32(dev->base + VIRTIO_OFF_INTR_ACK, res);
+	}
 	return res;
 }
 

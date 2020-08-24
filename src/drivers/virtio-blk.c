@@ -136,19 +136,20 @@ int blk_read(struct vfsopen* o, void* buf, size_t sz)	{
 	struct virtio_blk_req* req;
 	struct virtio_dev_struct* dev = &blkdev;
 	ptr_t devresult;
+	ptr_t preq;
 
 	mutex_acquire(&blkdevice.lock);
 	_create_job(buf, sz, JOB_READ);
 
-	virtq_add_buffer(dev, 4+4+8, 0, 0, true);
+	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true);
 	devresult = virtq_add_buffer(dev, 513, VIRTQ_DESC_F_WRITE, 0, false);
 
 	struct blk_job* j = &(blkdevice.job);
 	j->devresult = (void*)(devresult + cpu_linear_offset());
 
-	req = (struct virtio_blk_req*)(cpu_linear_offset() + dev->virtq->ringbuffer);
+	req = (struct virtio_blk_req*)(cpu_linear_offset() + preq);
 	memset((void*)req, 0x00, sizeof(struct virtio_blk_req));
-	
+
 	req->status = 0xff;
 	req->type |= VIRTIO_BLK_T_IN;
 	req->sector = vfs_offset(o);
@@ -163,20 +164,20 @@ int blk_write(struct vfsopen* o, void* buf, size_t sz)	{
 	struct virtio_blk_req* req;
 	size_t rsz;
 	struct virtio_dev_struct* dev = &blkdev;
-	ptr_t devresult;
+	ptr_t devresult, preq;
 	mutex_acquire(&blkdevice.lock);
 
 	_create_job(buf, sz, JOB_WRITE);
 
 	rsz = MIN(sz, BLK_UNIT_SIZE);
-	virtq_add_buffer(dev, 4+4+8, 0, 0, true);
+	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true);
 	virtq_add_buffer(dev, 512, 0, 0, false);
 	devresult = virtq_add_buffer(dev, 1, VIRTQ_DESC_F_WRITE, 0, false);
 
 	struct blk_job* j = &(blkdevice.job);
 	j->devresult = (void*)(devresult + cpu_linear_offset());
 
-	req = (struct virtio_blk_req*)(cpu_linear_offset() + dev->virtq->ringbuffer);
+	req = (struct virtio_blk_req*)(cpu_linear_offset() + preq);
 	memset((void*)req, 0x00, sizeof(struct virtio_blk_req));
 
 	req->status = 0xff;
@@ -191,27 +192,24 @@ int blk_write(struct vfsopen* o, void* buf, size_t sz)	{
 }
 
 int virtio_blk_irq_cb(void)	{
-	logi("BLK IRQ\n");
+	logd("BLK IRQ\n");
 	struct virtio_dev_struct* dev = &blkdev;
 	int res;
 	struct virtq_desc* desc = virtio_get_desc(dev, 0);
 
 	struct virtq_used* u = virtq_get_used(dev, 0);
-	void* buf = (void*)(dev->virtq->ringbuffer);
-	buf += cpu_linear_offset();
 
 	u->idx = 3;
 
-	res = virtio_ack_intr(dev);
-	logi("res = %i\n", res);
+	res = virtio_intr_status(dev);
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		struct blk_job* j = _get_job();
 		// We always read/write in these unit sizes
 
-		uint8_t* res = (uint8_t*)j->devresult;
+		uint8_t* dres = (uint8_t*)j->devresult;
 		uint8_t retcode;
-		if(j->type == JOB_READ)		retcode = res[512];
-		else						retcode = res[0];
+		if(j->type == JOB_READ)		retcode = dres[512];
+		else						retcode = dres[0];
 
 		if(retcode != 0)	{
 			logw("Driver returned %i\n", retcode);
@@ -223,12 +221,14 @@ int virtio_blk_irq_cb(void)	{
 
 		// Unlock the device for new operations
 		mutex_release(&blkdevice.lock);
-		if(j->left == 0 || retcode != 0)	{
+		if(j->type != JOB_NONE && (j->left == 0 || retcode != 0))	{
 			int tid = j->tid;
 			j->type = JOB_NONE;
 			thread_wakeup(tid, (retcode == 0) ? j->total : -1);
 		}
 	}
+	virtio_ack_intr(dev);
+	return 0;
 }
 
 static struct fs_struct virtioblkdev = {
