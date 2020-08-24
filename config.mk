@@ -72,7 +72,9 @@ QEMU_FLAGS += -object rng-random,filename=/dev/random,id=rng0
 QEMU_FLAGS += -device virtio-rng-device,rng=rng0
 
 # Useful for debugging
-#QEMU_FLAGS += -trace events=events
+ifeq ($(QEMU_TRACE),1)
+QEMU_FLAGS += -trace events=events
+endif
 
 # Networking
 # tap device (requires admin)
