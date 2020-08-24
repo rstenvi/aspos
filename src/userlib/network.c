@@ -40,7 +40,7 @@ int network_init_dhcp(long flags)	{
 		count += 2;
 	} while((!dhcp_supplied_address(n)) && (count < MAX_WAIT_TICKS));
 
-	if(count > MAX_WAIT_TICKS)	{
+	if(count >= MAX_WAIT_TICKS)	{
 		printf("No IP from DHCP\n");
 		return -(GENERAL_FAULT);
 	}
