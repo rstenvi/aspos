@@ -19,6 +19,9 @@
 
 #define IS_ALIGNED_POW2(val) ((val & (val - 1)) == 0)
 
+#define MIN(a,b) ((a < b) ? a : b)
+#define MAX(a,b) ((a > b) ? a : b)
+
 
 /** Hold mutex after open */
 #define MUTEX_FLAG_HOLD (1 << 0)
@@ -199,10 +202,11 @@ void* llist_find(struct llist* list, long key);
 // -------------------- ringbuf.c ----------------------------- //
 
 struct ringbuf {
-	void* data;
-	size_t len;
-	size_t nextfree;
+	void* start;
+	size_t maxlen;
+	size_t cidx, lidx;
 	volatile uint8_t lock;
+	bool full;
 };
 
 struct ringbuf* ringbuf_alloc(size_t sz);
