@@ -43,6 +43,19 @@ int xread(int fd, void* buf, int count)	{
 	return res;
 }
 
+void* xzalloc(int bytes)	{
+	void* ret;
+
+	ret = malloc(bytes);
+	if(ret == NULL)	{
+		printf("Unable to allocate %i bytes of memory\n");
+		exit(1);
+	}
+
+	memset(ret, 0x00, bytes);
+	return ret;
+}
+
 void dump_random(int count)	{
 	char* buf;
 	int fd, res;
@@ -159,17 +172,18 @@ void write_block(void)	{
 		close(fd);
 	}
 }
-void read_block(void)	{
-	char buf[16];
-	memset(buf, 0x00, 16);
+
+
+void test_read_block(int bytes, int offset)	{
+	char* buf;
 	int res, fd;
-	fd = open("/block", 0, 0);
-	if(fd > 0)	{
-		lseek(fd, 1, SEEK_SET);
-		res = read(fd, buf, 16);
-		printf("read = %i | buf[0] = 0x%x\n", res, buf[0]);
-		close(fd);
-	}
+
+	buf = (char*)xzalloc(bytes);
+	fd = xopen("/dev/block", 0, 0);
+	lseek(fd, offset, SEEK_SET);
+	res = xread(fd, buf, bytes);
+	hexdump(buf, bytes);
+	close(fd);
 }
 
 void read_stdin(void)	{
@@ -183,7 +197,7 @@ void read_stdin(void)	{
 
 void print_usage()	{
 	printf("Place argmument by specifying 'USERARG=cmd' in userconfig.mk\n");
-	printf("Possible arguments: mutex|semaphore|sleep|random\n");
+	printf("Possible arguments: mutex|semaphore|sleep|random|rblock\n");
 }
 
 int main(int argc, char* argv[])	{
@@ -214,6 +228,10 @@ int main(int argc, char* argv[])	{
 	}
 	else if(!strcmp(argv[1], "semaphore"))	{
 		test_semaphore();
+	}
+	else if(!strcmp(argv[1], "rblock"))	{
+		test_read_block(64, 0);
+		test_read_block(64, 2);
 	}
 	else	{
 		printf("'%s' is not a valid command\n", argv[1]);
