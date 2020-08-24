@@ -90,9 +90,8 @@ struct gic_struct gic_struct;
 #define GICD_ICFGR_EDGE		(0x2)
 
 static void _gic_set_bit_u32(ptr_t base, uint32_t bit)	{
-	volatile uint32_t val = 0;
-	DMAR32(base + ((bit / 32) * 4), val);
-	DMAW32(base + ((bit / 32) * 4), val | (1 << (bit % 32)) );
+	ptr_t off = (bit / 32) * 4;
+	DMAW32(base + off, (1 << (bit % 32)) );
 }
 
 

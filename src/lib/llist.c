@@ -69,14 +69,14 @@ static void* _llist_find(struct llist* list, long key, bool remove)	{
 }
 
 void* llist_remove(struct llist* list, long key)	{
-	void* ret = -1;
+	void* ret = (void*)-1;
 	mutex_acquire(&list->lock);
 	ret = _llist_find(list, key, true);
 	mutex_clear(&list->lock);
 	return ret;
 }
 void* llist_find(struct llist* list, long key)	{
-	void* ret = -1;
+	void* ret = (void*)-1;
 	mutex_acquire(&list->lock);
 	ret = _llist_find(list, key, false);
 	mutex_clear(&list->lock);

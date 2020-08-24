@@ -36,8 +36,6 @@ void panic(const char*, const char*, int);
 #define PANIC(msg) panic(msg, __FILE__, __LINE__)
 #define BUG(msg) panic(msg, __FILE__, __LINE__);
 
-#define MIN(a,b) ((a < b) ? a : b)
-#define MAX(a,b) ((a > b) ? a : b)
 
 
 /*
@@ -365,7 +363,7 @@ static inline int fileid_unique(void)	{
 	return r;
 }
 static inline void fileid_free(int id)	{
-	bm_clear(osdata.fileids, id - 3);
+	bm_clear(osdata.fileids, id);
 }
 
 

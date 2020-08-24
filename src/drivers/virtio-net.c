@@ -105,11 +105,12 @@ static int virtio_net_irq_cb(void)	{
 
 	void* buf = (void*)(status.recvbuffer + sizeof(struct virtio_net_hdr));
 
-	res = virtio_ack_intr(dev);
+	res = virtio_intr_status(dev);
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		_net_new_incoming(buf, u->used[0].len);
 	}
 
+	virtio_ack_intr(dev);
 	// Check if any thread is waiting for data
 	netdev_check_wakeup();
 	return res;
@@ -190,7 +191,7 @@ int net_write(struct vfsopen* o, void* buf, size_t sz)	{
 	data = (struct virtio_net_hdr*)(cpu_linear_offset() + addr);
 
 
-	data->flags = 0/*VIRTIO_NET_HDR_F_NEEDS_CSUM*/;
+	data->flags = 0;
 	data->gso_type = VIRTIO_NET_HDR_GSO_NONE;
 	data->hdr_len = sz - 4;
 	data->gso_size = 0;
@@ -257,7 +258,7 @@ int virtio_net_init(struct virtio_dev_struct* dev)	{
 
 
 	dev->irqno += gic_spi_offset();
-	gic_set_priority(dev->irqno, 10);
+	gic_set_priority(dev->irqno, 1);
 	gic_clear_intr(dev->irqno);
 	gic_enable_intr(dev->irqno);
 	gic_register_cb(dev->irqno, virtio_net_irq_cb);
