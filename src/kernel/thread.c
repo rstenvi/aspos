@@ -343,7 +343,9 @@ static int _handle_retcode(int res)	{
 
 int thread_open(const char* name, int flags, int mode)	{
 	int res = OK;
-	res = vfs_open(name, flags, mode);
+	char* kname = strdup_user(name);
+	res = vfs_open(kname, flags, mode);
+	free_user(kname);
 	if(res < 0)	_handle_retcode(res);
 
 	// Might not return here
@@ -360,7 +362,7 @@ int thread_close(int fd)	{
 	// Thread might be blocked
 	return res;
 }
-int thread_write(int fd, void* buf, size_t count)	{
+int thread_write(int fd, const void* buf, size_t count)	{
 	int res;
 	res = vfs_write(fd, buf, count);
 

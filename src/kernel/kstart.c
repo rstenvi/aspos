@@ -179,6 +179,12 @@ static void percpu_start(void)	{
 	stop = (ptr_t)(&CPUCORE_STOP);
 	call_inits(start, stop);
 
+#if PAN_CC_SUPPORT
+	if(pan_supported())	{
+		pan_enable();
+	}
+#endif
+
 	enable_irq();
 
 	// We always release the boot cpu lock because all CPUs are using this lock

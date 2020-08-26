@@ -22,6 +22,8 @@
 #define MIN(a,b) ((a < b) ? a : b)
 #define MAX(a,b) ((a > b) ? a : b)
 
+#define TMALLOC(name,type) type* name = (type*)malloc( sizeof(type) )
+
 
 /** Hold mutex after open */
 #define MUTEX_FLAG_HOLD (1 << 0)
@@ -152,6 +154,8 @@ int xifo_push_back(struct XIFO* xifo, void* v);
 int xifo_push_front(struct XIFO* xifo, void* v);
 void* xifo_pop_back(struct XIFO* xifo);
 void* xifo_pop_front(struct XIFO* xifo);
+void* xifo_peep_front(struct XIFO* xifo);
+void* xifo_peep_back(struct XIFO* xifo);
 size_t xifo_count(struct XIFO* xifo);
 
 // ------------------------ string.c --------------------- //
@@ -210,8 +214,8 @@ struct ringbuf {
 };
 
 struct ringbuf* ringbuf_alloc(size_t sz);
-void* ringbuf_get_data(struct ringbuf* rb, size_t len);
-
+int ringbuf_read(struct ringbuf* rb, void* to, int size);
+int ringbuf_write(struct ringbuf* rb, void* from, int size);
 
 // ----------------------- semaphore.c ------------------------ //
 

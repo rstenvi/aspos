@@ -86,7 +86,11 @@ _start:
 	mov x0, x9		/* .text load */
 	mov x1, #0x40000000
 	mov x1, x10
+#if ARM64_VA_BITS > 39
 	adr x2, kernel_pgd
+#else
+	adr x2, kernel_pud
+#endif
 	adr x3, user_pgd
 	ldr x4, =cpu_reset
 

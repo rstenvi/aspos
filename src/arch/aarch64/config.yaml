@@ -1,4 +1,3 @@
-
 aarch64_va_bits:
   type: int
   default: 48
@@ -14,3 +13,8 @@ aarch64_page_size:
   help:
     Number of bytes per page.
 
+aarch64_pan:
+  type: bool
+  default: false
+  help:
+    Enable Privileged Access Never (PAN).

@@ -117,8 +117,22 @@ off_t _lseek(int fd, off_t offset, int whence)	{
 }
 
 int _fstat(int fd, struct stat *statbuf)	{
+	// TODO: Must support this for all possible file descriptors
 	if(fd > 2)	PANIC("fd too high\n");
 
+	struct stat kstat = {0};
+	kstat.st_nlink = 1;
+	kstat.st_blksize = 1;
+
+	// This can be called from kernel mode or user mode
+	if(ADDR_USER(statbuf))	{
+		copy_to_user((void*)statbuf, (const void*)&kstat, sizeof(kstat));
+	}
+	else	{
+		memcpy(statbuf, &kstat, sizeof(kstat));
+	}
+
+/*
 	statbuf->st_dev = 0;
 	statbuf->st_ino = 0;
 	statbuf->st_nlink = 1;
@@ -128,6 +142,7 @@ int _fstat(int fd, struct stat *statbuf)	{
 	statbuf->st_size = 0;
 	statbuf->st_blksize = 1;
 	statbuf->st_blocks = 0;
+	*/
 	return 0;
 }
 

@@ -16,9 +16,19 @@
 #define PL011_OFF_UARTICR   0x044
 #define PL011_OFF_UARTDMACR 0x048
 
+#define ONE_OVER_EIGHT   (0b000)
+#define ONE_OVER_FOUR    (0b001)
+#define ONE_OVER_TWO     (0b010)
+#define THREE_OVER_FOUR  (0b011)
+#define SEVEN_OVER_EIGHT (0b100)
 
 #define UARTIFLS_TXIFLSEL_EIGHT 0b000
+
+
 #define UARTIFLS_RXIFLSEL_EIGHT (0b000 << 3)
+
+#define UART_RXIFLSEL (SEVEN_OVER_EIGHT << 3)
+#define UART_TXIFLSEL (SEVEN_OVER_EIGHT)
 
 #define PL011_OFF_UARTPeriphID0 0xFE0
 #define PL011_OFF_UARTPeriphID1 0xFE4
@@ -102,7 +112,7 @@ volatile uint8_t uartlock;
 static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
 static bool poll_have_rx_data()	{
 	uint32_t r = 0;
-	DMAR32(uart.base + 0x18, r);
+	DMAR32(uart.base + PL011_OFF_UARTFR, r);
 	return !(r & UART_FR_RXFE);
 }
 
@@ -165,18 +175,17 @@ static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk)	{
 	// Clear all interrupts
 	DMAW32(base + PL011_OFF_UARTICR, ((1<<11)-1));
 
-//	DMAW32(base + PL011_OFF_UARTDMACR, 1|2|4);
+	DMAW32(base + PL011_OFF_UARTDMACR, 1|2|4);
 
 	// Write to PL011_OFF_UARTLCR_H MUST come after IBRD and FBRD
 	// TX = 8 bits, 1 stop bit, no parity, fifo
-	DMAW32(base + PL011_OFF_UARTLCR_H, PL011_LCRH_WLEN_8/* | PL011_LCRH_FEN*/);
+	DMAW32(base + PL011_OFF_UARTLCR_H, PL011_LCRH_WLEN_8 | PL011_LCRH_FEN);
 
 	// Enable interrupts for receive, transmit and receive timeout
-	DMAW32(base + PL011_OFF_UARTIMSC, /*((1<<11)-1)*/(PL011_IMSC_RXIM /*| PL011_IMSC_TXIM*/ | PL011_IMSC_RTIM));
+	DMAW32(base + PL011_OFF_UARTIMSC, /*((1<<11)-1)*/(PL011_IMSC_RXIM | /*PL011_IMSC_TXIM |*/ PL011_IMSC_RTIM));
 
 
-	// Interrupt when FIFO is 1/8 full
-//	DMAW32(base + PL011_OFF_UARTIFLS, (UARTIFLS_TXIFLSEL_EIGHT | UARTIFLS_RXIFLSEL_EIGHT));
+	DMAW32(base + PL011_OFF_UARTIFLS, (UART_RXIFLSEL | UART_TXIFLSEL));
 
 	// Enable UART
 	DMAW32(base + PL011_OFF_UARTCR,
@@ -271,14 +280,23 @@ int pl011_putc(struct vfsopen* o, int c)	{
 	return (int)c;
 }
 
-int pl011_write(struct vfsopen* o, void* buf, size_t count)	{
+int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
 	size_t i;
-	char* arr = (char*)buf;
+	char* arr;
+	if(ADDR_USER(buf))	{
+		arr = strdup_user(buf);
+	}
+	else	{
+		arr = (char*)buf;
+	}
 	mutex_acquire(&uartlock);
 	for(i = 0; i < count; i++)	{
 		DMAW32(uart.base, (uint32_t)(arr[i]));
 	}
 	mutex_release(&uartlock);
+	if(ADDR_USER(buf))	{
+		free_user(arr);
+	}
 	return count;
 }
 
@@ -286,6 +304,10 @@ int pl011_receive(void)	{
 	uint32_t r = 0;
 	int res;
 	mutex_acquire(&uartlock);
+
+	DMAR32(uart.base + PL011_OFF_UARTRSR, r);
+	ASSERT_TRUE(r == 0, "error in uart\n");
+
 	DMAR32(uart.base, r);
 
 	char c = (char)(r & 0xff);
@@ -297,7 +319,6 @@ int pl011_receive(void)	{
 	if(res == USER_WAKEUP)	{
 		int dataread = 0;
 		int tid = perform_read_job(&dataread);
-		mutex_release(&uartlock);
 		thread_wakeup(tid, dataread);
 	}
 	mutex_release(&uartlock);

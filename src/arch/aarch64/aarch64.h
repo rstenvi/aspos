@@ -6,6 +6,13 @@
 
 #include "aarch64-config.h"
 
+#define ADDR_USER(vaddr)   (((ptr_t)vaddr & (1UL<<63)) == 0)
+#define ADDR_KERNEL(vaddr) (((ptr_t)vaddr & (1UL<<63)) != 0)
+
+
+#define PAN_CC_SUPPORT (ARMV_MAJOR >= 8 && ARMV_MINOR >= 1)
+#define PAN_ENABLED (PAN_CC_SUPPORT && CONFIG_AARCH64_PAN == 1)
+
 #define DAIF_IRQ_BIT 0x02
 
 #define CPACR_EL1_FPEN (0b11 << 20)
@@ -78,8 +85,26 @@
 
 
 
-// TODO: Set to 48 bits, should have user-configurable on this as well
-#define ARM64_REG_TCR_IPS (0x101UL << 32)
+#if ARM64_PAGE_SIZE != 4096
+# error "Only 4KB page size currently supported"
+#endif
+
+
+#if ARM64_VA_BITS == 32
+# define ARM64_REG_TCR_IPS (0x000UL << 32)
+#elif ARM64_VA_BITS == 36
+# define ARM64_REG_TCR_IPS (0x001UL << 32)
+#elif ARM64_VA_BITS == 40
+# define ARM64_REG_TCR_IPS (0x010UL << 32)
+#elif ARM64_VA_BITS == 42
+# define ARM64_REG_TCR_IPS (0x011UL << 32)
+#elif ARM64_VA_BITS == 44
+# define ARM64_REG_TCR_IPS (0x100UL << 32)
+#elif ARM64_VA_BITS == 48
+# define ARM64_REG_TCR_IPS (0x101UL << 32)
+#else
+# error "Invalid VA_BITS size"
+#endif
 
 
 
@@ -163,7 +188,7 @@
 
 #define ARM64_MMU_OA_MASK_PTD ARM64_MMU_OA_MASK
 #define ARM64_MMU_OA_MASK_PMD (((1UL<<(ARM64_VA_BITS-21))-1)<<21)
-#define ARM64_MMU_OA_MASK_PuD (((1UL<<(ARM64_VA_BITS-30))-1)<<30)
+#define ARM64_MMU_OA_MASK_PUD (((1UL<<(ARM64_VA_BITS-30))-1)<<30)
 
 #define ARM64_MMU_OFFSET_MASK ((1<<ARM64_PTE_OFFSET_BITS)-1)
 
@@ -193,8 +218,13 @@
 #define VMMAP_STOP ARM64_VA_KERNEL_VMMAP_STOP
 
 
-#define ARM64_VA_THREAD_STACKS_START 0x600000000000
+
+#define ARM64_VA_USER_START (PAGE_SIZE)
+#define ARM64_VA_USER_STOP  ((1UL<<ARM64_VA_BITS)-1)
+
 #define ARM64_VA_THREAD_STACKS_SIZE  (PAGE_SIZE * (CONFIG_MAX_THREADS * CONFIG_THREAD_STACK_BLOCKS))
+#define ARM64_VA_THREAD_STACKS_START (ARM64_VA_USER_STOP + 1 - ARM64_VA_THREAD_STACKS_SIZE)
 #define ARM64_VA_THREAD_STACKS_STOP (ARM64_VA_THREAD_STACKS_START + ARM64_VA_THREAD_STACKS_SIZE)
+
 
 #endif

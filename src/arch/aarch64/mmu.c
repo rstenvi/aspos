@@ -41,9 +41,6 @@ extern uint64_t USER_RODATA_START;
 extern uint64_t USER_RODATA_STOP;
 
 
-#define ADDR_USER(vaddr)   ((vaddr & (1UL<<63)) == 0)
-#define ADDR_KERNEL(vaddr) ((vaddr & (1UL<<63)) != 0)
-
 
 
 static inline uint64_t* find_pgd(ptr_t vaddr)	{
@@ -94,8 +91,16 @@ int __attribute__((__section__(".init.text")))  mmu_init_kernel(ptr_t vaddr, ptr
 }
 
 void __attribute__((__section__(".init.text"))) mmu_early_init(ptr_t real_load, ptr_t kernfirst)	{
-	uint64_t* ttbr0_pud = &user_pgd;
-	uint64_t* ttbr1 = &kernel_pgd;
+	uint64_t* ttbr0;
+	uint64_t* ttbr1;
+
+	ttbr0 = &user_pgd;
+#if ARM64_VA_BITS > 39
+	ttbr1 = &kernel_pgd;
+#else
+	ttbr1 = &kernel_pud;
+#endif
+
 	ptr_t i;
 	ALIGN_DOWN_POW2(real_load, PAGE_SIZE);
 
@@ -103,11 +108,11 @@ void __attribute__((__section__(".init.text"))) mmu_early_init(ptr_t real_load, 
 	// We fill in the entire pud, which will map in 512GB of memory
 	// That much memory probably doesn't exist, but it doesn't matter
 	for(i = 0; i < ARM64_MMU_ENTRIES_PER_PAGE; i++)	{
-		ttbr0_pud[i] = (i << 30) | ARM64_MMU_ENTRY_KERNEL_RWX | ARM64_MMU_ENTRY_NEXT_BLK;
+		ttbr0[i] = (i << 30) | ARM64_MMU_ENTRY_KERNEL_RWX | ARM64_MMU_ENTRY_NEXT_BLK;
 	}
 
 	// Set ttbr0
-	write_sysreg_ttbr0(ttbr0_pud);
+	write_sysreg_ttbr0(ttbr0);
 
 
 	// Early init ttbr0 is 39-bits while ttbr1 is real

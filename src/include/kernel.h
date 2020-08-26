@@ -517,6 +517,7 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 
 #define ASSERT_TRUE(cond,msg) if( !(cond) ) { PANIC(msg); }
 #define ASSERT_FALSE(cond,msg) if( (cond) ) { PANIC(msg); }
+#define ASSERT_VALID_PTR(ptr) ASSERT_FALSE(PTR_IS_ERR(ptr), "ptr invalid")
 
 
 #define DMAR8(addr, res) res = *((volatile uint8_t*)(addr))
@@ -541,6 +542,8 @@ const char* dtb_get_string(struct dtb_node* node, const char* name);
 int dtb_get_as_reg(struct dtb_node* node, int skip, ptr_t* outaddr, ptr_t* outlen);
 uint32_t dtb_get_int(struct dtb_node* node, const char* name);
 int dtb_get_interrupts(struct dtb_node* node, uint32_t* type, uint32_t* nr, uint32_t* flags);
+void dtb_dump_compatible(struct dtb_node* n);
+bool dtb_is_compatible(struct dtb_node* n, const char* c);
 
 // ----------------------- pmm.c ---------------------- //
 int pmm_init();
@@ -570,6 +573,9 @@ struct thread* new_thread_kernel(ptr_t, bool user, bool addlist);
 int thread_new_main(struct loaded_exe* exe);
 int mmu_create_linear(ptr_t start, ptr_t end);
 int thread_downtick(void);
+int thread_write(int fd, const void* buf, size_t count);
+int thread_wait_tid(int tid);
+int thread_get_tid(void);
 int thread_tick_sleep(int ticks);
 int thread_ms_sleep(ptr_t ms);
 int thread_sleep(ptr_t seconds);

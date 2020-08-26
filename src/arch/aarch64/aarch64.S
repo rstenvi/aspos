@@ -10,6 +10,44 @@ set_stack:
 	mov lr, x1
 	br x1
 
+#if PAN_CC_SUPPORT
+.global pan_enable
+.global pan_disable
+.global pan_supported
+#define MMFR1_PAN_OFFF 20
+#define MMFR1_PAN_MASK (0b1111 << MMFR1_PAN_OFFF)
+pan_supported:
+	mrs x0, ID_AA64MMFR1_EL1
+	and x0, x0, MMFR1_PAN_MASK
+	lsr x0, x0, #MMFR1_PAN_OFFF
+	ret
+
+pan_enable:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+
+	bl pan_supported
+	cbz x0, 1f
+	msr pan, #1
+	mrs x0, sctlr_el1
+	and x0, x0, ~(1<<23)
+	msr sctlr_el1, x0
+1:
+	ldp x29, x30, [sp], #16
+	ret
+
+pan_disable:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+
+	bl pan_supported
+	cbz x0, 1f
+	msr pan, #0
+1:
+	ldp x29, x30, [sp], #16
+	ret
+#endif
+
 arch_schedule:
 	mov sp, x0
 	isb

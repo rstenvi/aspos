@@ -29,7 +29,7 @@ static int _vfs_find_child(struct fs_component* d, const char* name)	{
 	return -1;
 }
 
-static struct fs_component* vfs_find_child(struct fs_component* d, const char** name)	{
+static struct fs_component* vfs_find_child(struct fs_component* d, char** name)	{
 	*name = *name + strlen(d->name) + 1;
 	const char* rname = (*name);
 	int idx;
@@ -47,7 +47,7 @@ static int vfs_add_to_open_root(struct vfsopen* n)	{
 
 int generic_open(struct fs_component* d, const char* name, int flags, int mode)	{
 	int idx;
-	char* rname = name;
+	char* rname = (char*)name;
 	d = vfs_find_child(d, &rname);
 
 //	const char* rname = (cname + strlen(d->name) + 1);
@@ -111,7 +111,7 @@ int vfs_read(int fd, void* buf, size_t max)	{
 
 	return -1;
 }
-int vfs_write(int fd, void* buf, size_t max)	{
+int vfs_write(int fd, const void* buf, size_t max)	{
 	struct fs_component* d = &(osdata.root);
 	struct vfsopen* o = llist_find(d->opened, fd);
 	if(o == NULL)	return -1;
@@ -194,7 +194,7 @@ int vfs_register_child(struct fs_component* child)	{
 	struct fs_component* d = &(osdata.root);
 	if(d->numchilds == d->maxchilds)	{
 		d->maxchilds += 4;
-		d->childs = (struct fs_component*)realloc(d->childs, (sizeof(void*) * d->maxchilds));
+		d->childs = (struct fs_component**)realloc(d->childs, (sizeof(void*) * d->maxchilds));
 		ASSERT_FALSE(PTR_IS_ERR(d->childs), "Memory error");
 	}
 

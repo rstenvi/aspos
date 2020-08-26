@@ -140,6 +140,11 @@ struct virtio_dev_struct {
 	bool initialized;
 
 	struct virtq* virtq;
+
+	/**
+	* Individual driver can use this to maintain a state.
+	*/
+	void* state;
 };
 
 typedef int (*virtio_init_t)(struct virtio_dev_struct*);
@@ -249,10 +254,12 @@ ptr_t virtq_alloc_desc(uint32_t qsz);
 int virtq_write_queue(struct virtio_dev_struct* dev, ptr_t paddr, int idx);
 
 int virtq_add_queue(struct virtio_dev_struct* dev, int queue);
+int virtio_intr_status(struct virtio_dev_struct* dev);
+int virtio_read_v1(struct virtio_dev_struct* dev, void* buf, size_t len);
 
-static inline struct virtq_desc* virtio_get_desc(struct virtio_dev_struct* dev, int queue) {
+static inline struct virtq_desc* virtio_get_desc(struct virtio_dev_struct* dev, int queue, int idx) {
 	ptr_t start = (ptr_t)(dev->virtq->queues[queue].desc);
-	start += (dev->virtq->queues[queue].idx-1) * sizeof(struct virtq_desc);
+	start += (idx * sizeof(struct virtq_desc));
 	return (struct virtq_desc*)(start);
 }
 

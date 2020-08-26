@@ -79,8 +79,15 @@ void arch_busyloop(void);
 void _uthread_exit(void);
 void* copy_from_user(void* dest, const void* src, size_t n);
 void* copy_to_user(void* dest, const void* src, size_t n);
+char* strdup_user(const char* src);
+void* memcopy_user(const void* src, size_t sz);
+size_t strlen_user(const char* src);
+void free_user(char* src);
 void cpu_reset(void);
 
+void pan_enable(void);
+void pan_disable(void);
+int pan_supported(void);
 
 static inline int cpu_id(void)	{ return (int)(read_mpidr_el1() & 0xff); }
 

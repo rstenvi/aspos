@@ -121,7 +121,7 @@ struct loaded_exe* elf_load(void* addr)	{
 	// Fill in exe varaibles
 	exe->entry = hdr->e_entry;
 	exe->num_regions = hdr->e_phnum;
-	exe->regions = (struct mem_regions*)malloc( sizeof(struct mem_region) * exe->num_regions);
+	exe->regions = (struct mem_region*)malloc( sizeof(struct mem_region) * exe->num_regions);
 	ASSERT_FALSE(PTR_IS_ERR(exe->regions), "Unable to allocate memory");
 
 	phdr = (addr + hdr->e_phoff);
@@ -149,7 +149,7 @@ struct loaded_exe* elf_load(void* addr)	{
 
 		// Start with everything as 0
 		memset((void*)rvaddr, 0x00, msize);
-		copy_to_user((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
+		memcpy((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
 
 		// TODO:
 		// - change protection on pages

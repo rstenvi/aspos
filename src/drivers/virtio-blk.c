@@ -159,7 +159,7 @@ int blk_read(struct vfsopen* o, void* buf, size_t sz)	{
 	return -BLOCK_THREAD;
 }
 
-int blk_write(struct vfsopen* o, void* buf, size_t sz)	{
+int blk_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	int res;
 	struct virtio_blk_req* req;
 	size_t rsz;
@@ -167,7 +167,7 @@ int blk_write(struct vfsopen* o, void* buf, size_t sz)	{
 	ptr_t devresult, preq;
 	mutex_acquire(&blkdevice.lock);
 
-	_create_job(buf, sz, JOB_WRITE);
+	_create_job((void*)buf, sz, JOB_WRITE);
 
 	rsz = MIN(sz, BLK_UNIT_SIZE);
 	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true);
@@ -183,7 +183,7 @@ int blk_write(struct vfsopen* o, void* buf, size_t sz)	{
 	req->status = 0xff;
 	req->type |= VIRTIO_BLK_T_OUT;
 	req->sector = vfs_offset(o);
-	memcpy(req->data, buf, rsz);
+	copy_from_user(req->data, buf, rsz);
 
 	DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
 
@@ -195,9 +195,10 @@ int virtio_blk_irq_cb(void)	{
 	logd("BLK IRQ\n");
 	struct virtio_dev_struct* dev = &blkdev;
 	int res;
-	struct virtq_desc* desc = virtio_get_desc(dev, 0);
-
+	int idx = dev->virtq->queues[0].idx - 1;
 	struct virtq_used* u = virtq_get_used(dev, 0);
+	struct virtq_desc* desc = virtio_get_desc(dev, 0, idx);
+
 
 	u->idx = 3;
 
@@ -215,7 +216,7 @@ int virtio_blk_irq_cb(void)	{
 			logw("Driver returned %i\n", retcode);
 		}
 		else if(j->type == JOB_READ)	{
-			memcpy(j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
+			copy_to_user(j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
 		}
 		j->left -= MIN(j->left, BLK_UNIT_SIZE);
 

@@ -42,7 +42,7 @@ ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool 
 	else	{
 		e->spsr |= SPSR_M_SPSEL_ELx | SPSR_M_STATE_EL1;
 	}
-		
+
 //	e->spsr = SPSR_M_SPSEL_EL0 | SPSR_M_STATE_EL0 | SPSR_M_AARCH64 |
 //		SPSR_MASK_DEBUG | SPSR_MASK_SERROR | /*SPSR_MASK_IRQ |*/ SPSR_MASK_FIQ;
 	e->saved_sp = ustack;
@@ -69,11 +69,66 @@ int arch_thread_set_exit(void* sp, ptr_t addr)	{
 	return 0;
 }
 
-
 void* copy_to_user(void* dest, const void* src, size_t n)	{
-	return memcpy(dest, src, n);
+	void* ret;
+#if PAN_ENABLED
+	pan_disable();
+#endif
+	ret = memcpy(dest, src, n);
+#if PAN_ENABLED
+	pan_enable();
+#endif
+	return ret;
 }
 void* copy_from_user(void* dest, const void* src, size_t n)	{
-	return memcpy(dest, src, n);
+	void* ret;
+#if PAN_ENABLED
+	pan_disable();
+#endif
+	ret = memcpy(dest, src, n);
+#if PAN_ENABLED
+	pan_enable();
+#endif
+	return ret;
 }
 
+size_t strlen_user(const char* src)	{
+	size_t res = 0;
+#if PAN_ENABLED
+	pan_disable();
+#endif
+	res = strlen(src);
+#if PAN_ENABLED
+	pan_enable();
+#endif
+	return res;
+}
+
+char* strdup_user(const char* src)	{
+	char* ret;
+	size_t len;
+
+	len = strlen_user(src);
+	ret = (char*)malloc(len + 1);
+	ASSERT_VALID_PTR(ret);
+	copy_from_user(ret, src, len+1);
+	return ret;
+}
+
+void* memcopy_user(const void* src, size_t sz)	{
+	void* ret = malloc(sz);
+	ASSERT_VALID_PTR(ret);
+	copy_from_user(ret, src, sz);
+	return ret;
+}
+
+/**
+* We use separate routine for allocating and free-ing data which has been copied
+* from user mode. That allows us to optimize these memory allocations. Since
+* these allocations will typically be small and also last for a short amount of
+* time, we could implement a faster allocation mechanism with malloc as a backup
+* if the other method is not feasible.
+*/
+void free_user(char* src)	{
+	free(src);
+}

@@ -14,7 +14,7 @@ struct vfsopen;
 typedef int (*drvfunc_open_t)(struct vfsopen*,const char*,int,int);
 typedef int (*drvfunc_fcntl_t)(struct vfsopen*,ptr_t,ptr_t);
 typedef int (*drvfunc_fstat_t)(struct vfsopen*,void*);
-typedef int (*drvfunc_write_t)(struct vfsopen*,void*,size_t);
+typedef int (*drvfunc_write_t)(struct vfsopen*,const void*,size_t);
 typedef int (*drvfunc_read_t)(struct vfsopen*,void*,size_t);
 typedef int (*drvfunc_close_t)(struct vfsopen*);
 typedef int (*drvfunc_getc_t)(struct vfsopen*);
@@ -63,7 +63,7 @@ static inline ptr_t vfs_offset(struct vfsopen* o) { return o->offset; }
 
 int vfs_open(const char* name, int flags, int mode);
 int vfs_read(int fd, void* buf, size_t max);
-int vfs_write(int fd, void* buf, size_t max);
+int vfs_write(int fd, const void* buf, size_t max);
 int vfs_close(int fd);
 int thread_lseek(int fd, off_t offset, int whence);
 off_t vfs_lseek(int fd, off_t offset, int whence);

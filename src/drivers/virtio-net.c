@@ -180,7 +180,7 @@ static int _net_new_incoming(void* buf, size_t sz)	{
 	return OK;
 }
 
-int net_write(struct vfsopen* o, void* buf, size_t sz)	{
+int net_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	int res;
 	struct virtio_dev_struct* dev = &netdev;
 	ptr_t addr;
