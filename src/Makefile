@@ -38,9 +38,11 @@ rundbg:
 	qemu-system-aarch64 $(QEMU_FLAGS) -s -S
 
 clean:
-	-rm -f aspos.elf Image libaspos.a disk.img
+	-rm -f aspos.elf Image libaspos.a
 	make -C arch/$(ARCH) clean
 	make -C kernel clean
 	make -C drivers clean
 	make -C lib clean
 	make -C userlib clean
+fclean: clean
+	-rm -f disk.img
