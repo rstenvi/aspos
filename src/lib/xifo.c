@@ -123,27 +123,47 @@ int xifo_push_front(struct XIFO* xifo, void* v)	{
 	return res;
 }
 
-void* xifo_pop_back(struct XIFO* xifo)	{
+static void* _xifo_pop_back(struct XIFO* xifo, bool remove)	{
 	void* ret = NULL;
 
 	mutex_acquire(&xifo->lock);
 	if(xifo->last == xifo->first)	goto done;
 
-	ret = xifo->items[--(xifo->last)];
+	ret = xifo->items[xifo->last - 1];
+	if(remove)	xifo->last--;
 
 done:
 	mutex_release(&xifo->lock);
 	return ret;
 }
 
-void* xifo_pop_front(struct XIFO* xifo)	{
+static void* _xifo_pop_front(struct XIFO* xifo, bool remove)	{
 	void* ret = NULL;
 
 	mutex_acquire(&xifo->lock);
 	if(xifo->first == xifo->last)	goto done;
-	ret = xifo->items[xifo->first++];
+	ret = xifo->items[xifo->first];
+
+	if(remove)	xifo->first++;
 
 done:
 	mutex_release(&xifo->lock);
 	return ret;
+
+}
+
+void* xifo_pop_front(struct XIFO* xifo)	{
+	return _xifo_pop_front(xifo, true);
+}
+
+void* xifo_peep_front(struct XIFO* xifo)	{
+	return _xifo_pop_front(xifo, false);
+}
+
+
+void* xifo_pop_back(struct XIFO* xifo)	{
+	return _xifo_pop_back(xifo, true);
+}
+void* xifo_peep_back(struct XIFO* xifo)	{
+	return _xifo_pop_back(xifo, false);
 }
