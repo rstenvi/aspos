@@ -169,6 +169,18 @@ function dump()	{
 	return 0
 }
 
+# Add all valid targets as automcomplete to lunch command
+function complete_lunch() {
+	comp=""
+	pushd ${CROOT}/build/targets >/dev/null
+	while read line; do
+		target=$(echo $line | sed 's/.sh//g')
+		comp+="$target "
+	done < <(ls *.sh)
+	comp=$(echo $comp | sed 's/ $//')
+	complete -W "$comp" lunch
+	popd >/dev/null
+}
 
 
 function lunch()	{
@@ -254,3 +266,5 @@ function describe() {
 	fi
 }
 
+
+complete_lunch
