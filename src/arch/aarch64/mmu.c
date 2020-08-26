@@ -63,6 +63,7 @@ int __attribute__((__section__(".init.text")))  mmu_init_kernel(ptr_t vaddr, ptr
 	uint64_t* kpud = &kernel_pud;
 	uint64_t* kpmd = &kernel_pmd;
 	uint64_t* kptd = &kernel_ptd;
+	vaddr -= ARM64_VA_KERNEL_FIRST_ADDR;
 
 #if ARM64_VA_BITS > 39
 	int l0idx = ((vaddr & ((ARM64_MMU_ENTRIES_PER_PAGE-1) << 39)) >> 39 );
@@ -217,8 +218,13 @@ int mmu_create_linear(ptr_t start, ptr_t end)	{
 	ALIGN_UP_POW2(linstop, PAGE_SIZE);
 	uint64_t* pgd = (uint64_t*)(cpu_get_pgd());;
 
-
 	ptr_t i;
+
+	/*
+	* We need to map as RWX below because, the linear region includes the
+	* kernel .text segment. This will be automatically patched up when we map in
+	* the kernel image. 
+	*/
 	for(i = 0; i < (linstop - linstart); i += PAGE_SIZE)	{
 		mmu_create_entry(linstart + i, start + i, pgd, ARM64_MMU_ENTRY_KERNEL_RWX);
 	}
@@ -310,22 +316,22 @@ static int map_kernel_image(void)	{
 	// Map text segment as executable
 	start = (ptr_t)(&(KERNEL_TEXT_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(KERNEL_TEXT_STOP));	ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - 0xffff000000000000, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RX);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RX);
 
 
 	// Map .data and .bss as RW
 	start = (ptr_t)(&(KERNEL_DATA_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(KERNEL_BSS_STOP));		ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - 0xffff000000000000, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RW);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RW);
 
 	// Map .rodata and RO
 	start = (ptr_t)(&(KERNEL_RODATA_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(KERNEL_RODATA_STOP));		ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - 0xffff000000000000, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RO);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RO);
 
 	start = (ptr_t)(&(USER_TEXT_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(USER_TEXT_STOP));		ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - 0xffff000000000000, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_USER_RX);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_USER_RX);
 	return 0;
 }
 

@@ -15,7 +15,7 @@ all: $(OBJ) linker.lds
 
 linker.lds: linker.lds.S
 	-rm -f $@
-	$(CC) -E -nostdinc -DIMAGE_LOAD=$(IMAGE_LOAD) $< -o $@
+	$(CC) -I$(CROOT)/src/include -include config.h -E -nostdinc -DIMAGE_LOAD=$(IMAGE_LOAD) $< -o $@
 	sed -i '/#.*/d' $@
 	chmod 400 $@
 

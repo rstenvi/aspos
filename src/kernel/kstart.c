@@ -253,7 +253,7 @@ static int init_memory(ptr_t kimage)	{
 	osdata.pmm.end = addr + length;
 
 	pmm_init();
-	pmm_mark_mem(kimage, osdata.kernel_end - ARM64_VA_KERNEL_IMAGE_START);
+	pmm_mark_mem(kimage, osdata.kernel_end - ARM64_VA_KERNEL_FIRST_ADDR);
 	pmm_mark_mem((ptr_t)(osdata.dtb), ((ptr_t)osdata.dtb + MB) );
 
 	//mmu_create_linear(0, osdata.pmm.end);

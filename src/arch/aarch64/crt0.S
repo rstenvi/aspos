@@ -62,7 +62,7 @@ _start:
 	* Set up vectortable, comes directly after .init section
 	*/
 	adr x1, IMAGE_INIT_END;
-	mov x2, ARM64_VA_KERNEL_IMAGE_START
+	mov x2, ARM64_VA_KERNEL_FIRST_ADDR
 	add x1, x1, x2
 	msr vbar_el1, x1
 
@@ -73,7 +73,7 @@ _start:
 
 	/* Init MMU, but don't initialize it */
 	mov x0, x9
-	mov x1, ARM64_VA_KERNEL_IMAGE_START
+	mov x1, ARM64_VA_KERNEL_FIRST_ADDR
 
 	bl mmu_early_init
 

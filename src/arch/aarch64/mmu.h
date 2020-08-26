@@ -1,7 +1,12 @@
 #ifndef __MMU_H
 #define __MMU_H
 
+#include "aarch64.h"
+
 static inline int vaddr2pgd(ptr_t vaddr)	{
+	if(ADDR_KERNEL(vaddr))	{
+		vaddr -= ARM64_VA_KERNEL_FIRST_ADDR;
+	}
 	return (int)( ((vaddr & ((ARM64_MMU_ENTRIES_PER_PAGE-1) << 39)) >> 39 ) );
 }
 static inline int vaddr2pud(ptr_t vaddr)	{

@@ -20,7 +20,7 @@ cpu_reset:
 	msr cpacr_el1, x0
 
 	adr x1, IMAGE_INIT_END;
-	mov x2, ARM64_VA_KERNEL_IMAGE_START
+	mov x2, ARM64_VA_KERNEL_FIRST_ADDR
 	add x1, x1, x2
 	msr vbar_el1, x1
 
