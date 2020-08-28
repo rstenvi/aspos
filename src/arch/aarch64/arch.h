@@ -22,6 +22,11 @@ struct exception {
 	uint64_t regs[31];
 };
 
+struct altinstr_repl {
+	uint64_t addr;
+	uint32_t instruction;
+	uint32_t id;
+} __attribute__((packed));
 
 enum MEMPROT {
 	PROT_NONE = 0,
@@ -85,9 +90,9 @@ size_t strlen_user(const char* src);
 void free_user(char* src);
 void cpu_reset(void);
 
-void pan_enable(void);
-void pan_disable(void);
-int pan_supported(void);
+bool pan_enable(void);
+bool pan_disable(void);
+bool pan_supported(void);
 
 static inline int cpu_id(void)	{ return (int)(read_mpidr_el1() & 0xff); }
 

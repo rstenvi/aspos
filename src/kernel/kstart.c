@@ -179,12 +179,6 @@ static void percpu_start(void)	{
 	stop = (ptr_t)(&CPUCORE_STOP);
 	call_inits(start, stop);
 
-#if PAN_CC_SUPPORT
-	if(pan_supported())	{
-		pan_enable();
-	}
-#endif
-
 	enable_irq();
 
 	// We always release the boot cpu lock because all CPUs are using this lock
@@ -241,7 +235,7 @@ static void call_inits(ptr_t start, ptr_t stop)	{
 	for(curr = start; curr < stop; curr += sizeof(ptr_t))	{
 		func = (deviceinit_t)(*((ptr_t*)(curr)));
 		ret = func();
-		logi("Driver @ 0x%lx returned %i\n", curr, ret);
+		logi("Driver @ %p returned %i\n", func, ret);
 	}
 }
 

@@ -1,7 +1,7 @@
 aarch64_va_bits:
   type: int
   default: 48
-  constraint: "{{value}} == 48"
+  constraint: "{{value}} == 48 or {{value}} == 44 or {{value}} == 39"
   help:
     Number of bits to use for virtual address (VA). The same value is used for
     user and kernel mode.

@@ -169,7 +169,10 @@ static int mmu_create_entry(ptr_t addr, ptr_t oa, uint64_t* pgd, ptr_t flag)	{
 
 #if ARM64_VA_BITS > 39
 	pud = mmu_check_entry(pgd, l0idx, true);
+#else
+	pud = pgd;
 #endif
+
 	pmd = mmu_check_entry(pud, l1idx, true);
 	ptd = mmu_check_entry(pmd, l2idx, true);
 
@@ -192,6 +195,8 @@ static void _mmu_unmap_page(ptr_t addr, uint64_t* pgd)	{
 #if ARM64_VA_BITS > 39
 	pud = mmu_check_entry(pgd, l0idx, false);
 	if(pud == NULL)	return;
+#else
+	pud = pgd;
 #endif
 
 	pmd = mmu_check_entry(pud, l1idx, false);
@@ -316,7 +321,7 @@ static int map_kernel_image(void)	{
 	// Map text segment as executable
 	start = (ptr_t)(&(KERNEL_TEXT_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(KERNEL_TEXT_STOP));	ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RX);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RWX);
 
 
 	// Map .data and .bss as RW
@@ -361,15 +366,21 @@ ptr_t mmu_va_to_pa(ptr_t vaddr)	{
 	uint64_t* pgd = find_pgd(vaddr);
 
 
+#if ARM64_VA_BITS > 39
 	int l0idx = vaddr2pgd(vaddr);
+#endif
 	int l1idx = vaddr2pud(vaddr);
 	int l2idx = vaddr2pmd(vaddr);
 	int l3idx = vaddr2ptd(vaddr);
 
 	uint64_t* pud, *pmd, *ptd;
 
+#if ARM64_VA_BITS > 39
 	pud = mmu_check_entry(pgd, l0idx, false);
 	if(pud == NULL)	return 0;
+#else
+	pud = pgd;
+#endif
 
 	pmd = mmu_check_entry(pud, l1idx, false);
 	if(pmd == NULL)	return 0;

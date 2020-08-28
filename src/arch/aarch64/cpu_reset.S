@@ -24,7 +24,11 @@ cpu_reset:
 	add x1, x1, x2
 	msr vbar_el1, x1
 
+#if ARM64_VA_BITS > 39
 	adr x0, kernel_pgd
+#else
+	adr x0, kernel_pud
+#endif
 	msr ttbr1_el1, x0
 
 	adr x0, user_pgd

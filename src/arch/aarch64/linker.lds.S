@@ -65,6 +65,11 @@ SECTIONS {
 		*(.kernel.data.cpufunc)
 		CPUCORE_STOP = .;
 
+		. = ALIGN(ALIGN_SAME_SECTION);
+		ALTINSTR_START = .;
+		*(.data.altinstr)
+		ALTINSTR_STOP = .;
+
 		*(.data)
 
 		KERNEL_DATA_STOP = .;
