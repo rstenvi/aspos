@@ -1,16 +1,14 @@
 #include "aarch64.h"
 
-
 .macro ALT_INSTR ins id
-.altinstr_\id:
+.altinstr_\id\()_\ins:
 .pushsection .data.altinstr
-.quad .altinstr_\id
+.quad .altinstr_\id\()_\ins
 .word \ins
 .word \id
 .popsection
 nop
 .endm
-
 
 .global set_stack
 .global arch_schedule
@@ -23,17 +21,27 @@ set_stack:
 	br x1
 
 
-#if PAN_CC_SUPPORT
+#if CONFIG_AARCH64_PAN
+.global pan_enabled
+pan_enabled:
+	mov x0, xzr
+	/* mrs x0, pan */
+	ALT_INSTR 0xd5384260, CPU_FEATURE_PAN
+
+	ret
+
 .global pan_disable
 pan_disable:
-	stp x29, x30, [sp, #-16]!
-	mov x29, sp
-
-	bl pan_supported
-	cbz x0, 1f
+	mov x0, xzr
+	/* msr pan, #0 */
 	ALT_INSTR 0xd500409f, CPU_FEATURE_PAN
-1:
-	ldp x29, x30, [sp], #16
+	ret
+
+.global pan_enable
+pan_enable:
+	mov x0, xzr
+	/* msr pan, #1 */
+	ALT_INSTR 0xd500419f, CPU_FEATURE_PAN
 	ret
 #endif
 
@@ -81,6 +89,45 @@ write_\reg:
 	msr \reg, \val
 	ret
 .endm
+
+/*
+* Helper-macro to create wrapper for accessing user-memory using through the
+* usual C string function.
+*/
+.macro COPY_USER_HELPER dir, func
+.global \func\()_\dir\()_user
+\func\()_\dir\()_user:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+
+	mov x19, x0
+	mov x20, x1
+	mov x21, x2
+
+#if CONFIG_AARCH64_PAN
+	bl pan_disable
+#endif
+
+	mov x0, x19
+	mov x1, x20
+	mov x2, x21
+	bl \func
+	mov x19, x0
+
+#if CONFIG_AARCH64_PAN
+	bl pan_enable
+#endif
+
+	ldp x29, x30, [sp], #16
+	mov x0, x19
+	ret
+.endm
+
+
+COPY_USER_HELPER to, strncpy
+COPY_USER_HELPER to, strncat
+COPY_USER_HELPER to, memcpy
+COPY_USER_HELPER from, memcpy
 
 
 /**

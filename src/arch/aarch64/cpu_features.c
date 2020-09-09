@@ -32,12 +32,12 @@ static inline int mmfr2_get_bits(int off, int bits)	{
 #define MMFR1_PAN_BITS  4
 #define SCTLR_SPAN_DISABLE (1UL<<23)
 
-#if PAN_CC_SUPPORT
+#if CONFIG_AARCH64_PAN
 bool pan_supported(void)	{
 	return (mmfr1_get_bits(MMFR1_PAN_SHIFT, MMFR1_PAN_BITS) != 0);
 }
 
-bool pan_enable(void)	{
+bool pan_enable_next_intr(void)	{
 	if(pan_supported())	{
 		ptr_t sctlr = read_sctlr_el1();
 		sctlr &= ~(SCTLR_SPAN_DISABLE);
@@ -71,12 +71,12 @@ struct cpu_feat {
 };
 
 static struct cpu_feat features[] = {
-#if PAN_CC_SUPPORT
+#if CONFIG_AARCH64_PAN
 	{
 		.name = "PAN",
 		.id = CPU_FEATURE_PAN,
 		.check = pan_supported,
-		.enable = pan_enable,
+		.enable = pan_enable_next_intr,
 		.disable = pan_disable,
 		.percore = true,
 	}

@@ -126,7 +126,7 @@ int _fstat(int fd, struct stat *statbuf)	{
 
 	// This can be called from kernel mode or user mode
 	if(ADDR_USER(statbuf))	{
-		copy_to_user((void*)statbuf, (const void*)&kstat, sizeof(kstat));
+		memcpy_to_user((void*)statbuf, (const void*)&kstat, sizeof(kstat));
 	}
 	else	{
 		memcpy(statbuf, &kstat, sizeof(kstat));

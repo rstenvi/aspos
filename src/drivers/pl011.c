@@ -232,7 +232,7 @@ static int perform_read_job(int* res)	{
 	int dataread = (uart.curridx - uart.firstidx);
 	*res = dataread;
 	if(uart.mode != CHAR_MODE_BYTE)	{
-		copy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
+		memcpy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
 		uart.curridx = uart.firstidx = 0;
 	}
 	else	{

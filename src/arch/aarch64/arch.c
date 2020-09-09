@@ -69,28 +69,6 @@ int arch_thread_set_exit(void* sp, ptr_t addr)	{
 	return 0;
 }
 
-void* copy_to_user(void* dest, const void* src, size_t n)	{
-	void* ret;
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	ret = memcpy(dest, src, n);
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return ret;
-}
-void* copy_from_user(void* dest, const void* src, size_t n)	{
-	void* ret;
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	ret = memcpy(dest, src, n);
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return ret;
-}
 
 size_t strlen_user(const char* src)	{
 	size_t res = 0;
@@ -111,14 +89,14 @@ char* strdup_user(const char* src)	{
 	len = strlen_user(src);
 	ret = (char*)malloc(len + 1);
 	ASSERT_VALID_PTR(ret);
-	copy_from_user(ret, src, len+1);
+	memcpy_from_user(ret, src, len+1);
 	return ret;
 }
 
-void* memcopy_user(const void* src, size_t sz)	{
+void* memdup_user(const void* src, size_t sz)	{
 	void* ret = malloc(sz);
 	ASSERT_VALID_PTR(ret);
-	copy_from_user(ret, src, sz);
+	memcpy_from_user(ret, src, sz);
 	return ret;
 }
 

@@ -183,7 +183,7 @@ int blk_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	req->status = 0xff;
 	req->type |= VIRTIO_BLK_T_OUT;
 	req->sector = vfs_offset(o);
-	copy_from_user(req->data, buf, rsz);
+	memcpy_from_user(req->data, buf, rsz);
 
 	DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
 
@@ -216,7 +216,7 @@ int virtio_blk_irq_cb(void)	{
 			logw("Driver returned %i\n", retcode);
 		}
 		else if(j->type == JOB_READ)	{
-			copy_to_user(j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
+			memcpy_to_user(j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
 		}
 		j->left -= MIN(j->left, BLK_UNIT_SIZE);
 

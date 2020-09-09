@@ -50,7 +50,9 @@ CFLAGS += $(SH_FLAGS)
 ASFLAGS += $(SH_FLAGS)
 
 QEMU_FLAGS += -machine virt
-QEMU_FLAGS += -cpu cortex-a57
+# Test older:
+# - cortex-a57
+QEMU_FLAGS += -cpu max
 QEMU_FLAGS += -nographic
 QEMU_FLAGS += -smp 1
 

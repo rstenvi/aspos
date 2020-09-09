@@ -72,7 +72,7 @@ int write_to_user(struct virtq_desc* desc, struct virtq_used_elem* elem, struct 
 	void* from = (void*)(desc->paddr + cpu_linear_offset());
 	size_t sz = MIN(job->left, elem->len);
 
-	copy_to_user(job->uaddr, from, sz);
+	memcpy_to_user(job->uaddr, from, sz);
 
 	job->left -= sz;
 	job->uaddr += sz;
