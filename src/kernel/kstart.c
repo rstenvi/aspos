@@ -128,6 +128,7 @@ static void kstart_stage2(void) {
 	logi("Initializing drivers\n");
 	init_drivers();
 
+	logi("Initializing threads\n");
 	init_threads();
 
 
@@ -138,6 +139,7 @@ static void kstart_stage2(void) {
 	int i;
 
 	// Lock the boot CPU so that we can pause the secondary CPUs
+	logi("Starting secondary CPUs\n");
 	mutex_acquire( &(osdata.cpus.cpus[0].readylock) );
 
 	for(i = 1; i < osdata.cpus.numcpus; i++)	{
@@ -158,9 +160,8 @@ static void kstart_stage2(void) {
 		}
 	}
 
-
-
 	// Init user memory and remove identity map
+	logi("Initializing user memory\n");
 	mmu_init_user_memory();
 
 	// Load ELF from initrd
@@ -168,7 +169,7 @@ static void kstart_stage2(void) {
 	logi("entry @ 0x%lx\n", exe->entry);
 	thread_new_main(exe);
 
-
+	logi("Trigger per-CPU code\n");
 	percpu_start();
 }
 
@@ -177,14 +178,18 @@ static void percpu_start(void)	{
 	ptr_t start, stop;
 	start = (ptr_t)(&CPUCORE_START);
 	stop = (ptr_t)(&CPUCORE_STOP);
+	logi("Calling CPU-specific init-code\n");
 	call_inits(start, stop);
 
+	logi("Enabling IRQ\n");
 	enable_irq();
 
 	// We always release the boot cpu lock because all CPUs are using this lock
 	// for waiting
+	logi("Releasing readylock on boot CPU\n");
 	mutex_release( &(osdata.cpus.cpus[0].readylock) );
 
+	logi("Starting thread scheduler\n");
 	thread_schedule_next();
 }
 
@@ -234,6 +239,7 @@ static void call_inits(ptr_t start, ptr_t stop)	{
 	int ret;
 	for(curr = start; curr < stop; curr += sizeof(ptr_t))	{
 		func = (deviceinit_t)(*((ptr_t*)(curr)));
+		logi("Calling driver @ %p\n", func);
 		ret = func();
 		logi("Driver @ %p returned %i\n", func, ret);
 	}
