@@ -9,7 +9,6 @@ SECTIONS {
 	.init.text : {
 		*(.init)
 		. = ALIGN(ALIGN_SAME_SECTION);
-		CPURESET = .;
 		*(.cpureset)
 	}
 	.init.bss (NOLOAD) : ALIGN(ARM64_PAGE_SIZE) {
@@ -27,25 +26,18 @@ SECTIONS {
 
 	. += ARM64_VA_KERNEL_FIRST_ADDR;
 
-	IMAGE_START = .;
 	KERNEL_START = .;
 	
 	.text : AT (ADDR (.text) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_TEXT_START = .;
 		. = ALIGN(ALIGN_VECTORTABLE); *(.vectortable)
-		. = ALIGN(ALIGN_SAME_SECTION); *(.kernel.text)
 		*(.text)
 		KERNEL_TEXT_STOP = .;
-		. = ALIGN(ARM64_PAGE_SIZE);
-		USER_TEXT_START = .;
-		*(.user.text)
-		USER_TEXT_STOP = .;
 		. = ALIGN(ARM64_PAGE_SIZE);
 	}
 	.data : AT (ADDR (.data) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_DATA_START = .;
-		*(.kernel.data)
-		. = ALIGN(ALIGN_SAME_SECTION);
+
 		DRVFUNC_START = .;
 		*(.kernel.data.drvfunc)
 		DRVFUNC_STOP = .;
@@ -76,7 +68,6 @@ SECTIONS {
 	}
 	.bss : AT (ADDR (.bss) - ARM64_VA_KERNEL_FIRST_ADDR) {
 		KERNEL_BSS_START = .;
-		*(.kbss)
 		*(.bss)
 		KERNEL_BSS_STOP = .;
 

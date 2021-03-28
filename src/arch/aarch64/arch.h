@@ -81,7 +81,6 @@ uint64_t read_mpidr_el1();
 void write_cntv_cval_el0(uint64_t);
 void enable_irq(void);
 void arch_busyloop(void);
-void _uthread_exit(void);
 void* memcpy_from_user(void* dest, const void* src, size_t n);
 void* memcpy_to_user(void* dest, const void* src, size_t n);
 char* strdup_user(const char* src);

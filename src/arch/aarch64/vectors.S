@@ -5,12 +5,11 @@
 .global vectortable
 .global exception_return
 
-.section .kernel.text
+.section .text
 exception_return:
 	/* Restore SP */
 	ldr	x21, [sp, EXC_EXC_SP_OFFSET]
 	msr	sp_el0, x21
-/*	mov sp, x21 */
 
 	/* Point to saved sp value */
 	add	sp, sp, #16
@@ -79,7 +78,6 @@ exception_return:
 
 	/* Store SP at appropriate offset */
 	mrs	x21, sp_el0
-	/* mov x21, sp */
 	str	x21, [sp, EXC_EXC_SP_OFFSET]
 	
 

@@ -9,7 +9,6 @@ OBJ += mmu.o
 OBJ += aarch64.o
 OBJ += arch.o
 OBJ += cpu_reset.o
-OBJ += thread.o
 OBJ += cpu_features.o
 
 all: $(OBJ) linker.lds

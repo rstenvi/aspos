@@ -26,23 +26,6 @@ extern uint64_t KERNEL_BSS_STOP;
 extern uint64_t KERNEL_RODATA_START;
 extern uint64_t KERNEL_RODATA_STOP;
 
-
-// All user segments 
-extern uint64_t USER_TEXT_START;
-extern uint64_t USER_TEXT_STOP;
-
-extern uint64_t USER_DATA_START;
-extern uint64_t USER_DATA_STOP;
-
-extern uint64_t USER_BSS_START;
-extern uint64_t USER_BSS_STOP;
-
-extern uint64_t USER_RODATA_START;
-extern uint64_t USER_RODATA_STOP;
-
-
-
-
 static inline uint64_t* find_pgd(ptr_t vaddr)	{
 	if(ADDR_USER(vaddr))	{
 		return (uint64_t*)(cpu_get_user_pgd());
@@ -52,8 +35,7 @@ static inline uint64_t* find_pgd(ptr_t vaddr)	{
 	}
 }
 
-
-int __attribute__((__section__(".init.text")))  mmu_init_kernel(ptr_t vaddr, ptr_t paddr)	{
+int __attribute__((__section__(".init.text"))) mmu_init_kernel(ptr_t vaddr, ptr_t paddr)	{
 	ALIGN_DOWN_POW2(paddr, (PAGE_SIZE * ARM64_MMU_ENTRIES_PER_PAGE));
 	ALIGN_DOWN_POW2(vaddr, (PAGE_SIZE * ARM64_MMU_ENTRIES_PER_PAGE));
 	int i;
@@ -321,7 +303,7 @@ static int map_kernel_image(void)	{
 	// Map text segment as executable
 	start = (ptr_t)(&(KERNEL_TEXT_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	stop = (ptr_t)(&(KERNEL_TEXT_STOP));	ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RWX);
+	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RX);
 
 
 	// Map .data and .bss as RW
@@ -334,9 +316,6 @@ static int map_kernel_image(void)	{
 	stop = (ptr_t)(&(KERNEL_RODATA_STOP));		ALIGN_UP_POW2(stop, PAGE_SIZE);
 	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_KERNEL_RO);
 
-	start = (ptr_t)(&(USER_TEXT_START));	ALIGN_DOWN_POW2(start, PAGE_SIZE);
-	stop = (ptr_t)(&(USER_TEXT_STOP));		ALIGN_UP_POW2(stop, PAGE_SIZE);
-	__mmu_map_pages(start, start - ARM64_VA_KERNEL_FIRST_ADDR, (stop - start) / PAGE_SIZE, pgd, ARM64_MMU_ENTRY_USER_RX);
 	return 0;
 }
 
