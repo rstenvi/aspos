@@ -5,7 +5,7 @@
 #include "lib.h"
 #include "lwip/api.h"
 #include "lwip/dhcp.h"
-#include "lwip/netdb.h"
+//#include "lwip/netdb.h"
 #include "lwip/dns.h"
 #include "aspos_lwip.h"
 

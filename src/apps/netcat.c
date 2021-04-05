@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "aspos.h"
+#include "lib.h"
 #include "aspos_lwip.h"
 #include "lwip/tcp.h"
 

@@ -155,15 +155,26 @@ done:
 void* xifo_pop_front(struct XIFO* xifo)	{
 	return _xifo_pop_front(xifo, true);
 }
-
 void* xifo_peep_front(struct XIFO* xifo)	{
 	return _xifo_pop_front(xifo, false);
 }
-
-
 void* xifo_pop_back(struct XIFO* xifo)	{
 	return _xifo_pop_back(xifo, true);
 }
 void* xifo_peep_back(struct XIFO* xifo)	{
 	return _xifo_pop_back(xifo, false);
+}
+
+void* xifo_search(struct XIFO* xifo, void* val, bool (*search)(void*,void*)) {
+	void* ret = NULL;
+	int i;
+	mutex_acquire(&xifo->lock);
+	for(i = xifo->first; i < xifo->last; i++)	{
+		if(search(val, xifo->items[i]))	{
+			ret = xifo->items[i];
+			break;
+		}
+	}
+	mutex_release(&xifo->lock);
+	return ret;
 }

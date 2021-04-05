@@ -66,7 +66,7 @@ QEMU_FLAGS += -append "$(KERNEL_APPEND)"
 endif
 
 ifeq ($(USE_DISK),1)
-QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=disk.img,id=hd0,if=none,format=raw
+QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=rootfs.tar,id=hd0,if=none,format=raw
 endif
 
 # RNG device

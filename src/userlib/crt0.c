@@ -1,9 +1,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include "lib.h"
  
 extern void _exit(int);
 extern int main ();
+
+#define CONFIG_CREATE_THREAD_EXIT 1
+#define CONFIG_CREATE_DEV_NULL    1
+
+#if CONFIG_CREATE_THREAD_EXIT
+void _exception_exit(int);
+#endif
 
 #if CONFIG_INIT_RANDOM_SEED
 static void _seed_random(void);
@@ -28,9 +36,26 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	_seed_random();
 #endif
 
+#if CONFIG_CREATE_THREAD_EXIT
+	conf_thread(THREAD_CONF_THREAD_EXIT, (ptr_t)_exception_exit);
+	conf_thread(THREAD_CONF_EXC_EXIT, (ptr_t)_exception_exit);
+#endif
+#if CONFIG_CREATE_DEV_NULL
+	int fdnull = init_dev_null(true);
+	if(fdnull < 0)	{
+		_exit(fdnull);
+	}
+#endif
+
     int ex = main(argc, argv, envp);
     _exit(ex);
 }
+
+#if CONFIG_CREATE_THREAD_EXIT
+void _exception_exit(int arg)	{
+	exit_thread(arg);
+}
+#endif
 
 #if CONFIG_INIT_RANDOM_SEED
 static void _seed_random(void)	{

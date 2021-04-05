@@ -12,6 +12,7 @@ OBJ += virtio-net.o
 OBJ += virtio-blk.o
 OBJ += mutex.o
 OBJ += semaphore.o
+OBJ += cuse.o
 
 all: $(OBJ)
 

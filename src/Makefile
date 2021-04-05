@@ -8,6 +8,9 @@ LIB = $(wildcard lib/*.o)
 OBJ += $(LIB)
 
 ULIB = $(wildcard userlib/*.o)
+UDRV = $(wildcard userlib/drivers/*.o)
+ULWIP = $(wildcard userlib/lwip/*.o)
+USTAR = $(wildcard userlib/fs/ustar/*.o)
 
 all: Image libaspos.a
 
@@ -18,7 +21,7 @@ aspos.elf: deps
 	$(LD) -T arch/$(ARCH)/linker.lds -static $(OBJ) $(LDFLAGS) -o $@ -L$(NEWLIBLOC) -lc
 
 libaspos.a: deps
-	$(AR) rs libaspos.a $(LIB) $(ULIB)
+	$(AR) rs libaspos.a $(LIB) $(ULIB) $(UDRV) $(ULWIP) $(USTAR)
 
 disk.img:
 	dd if=/dev/zero of=disk.img bs=1024 count=131072
@@ -46,3 +49,5 @@ clean:
 	make -C userlib clean
 fclean: clean
 	-rm -f disk.img
+
+.PHONY: fclean clean rundbg run deps

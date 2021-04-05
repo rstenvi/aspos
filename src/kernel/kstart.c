@@ -277,9 +277,19 @@ static void init_sbrk(void)	{
 	}
 	brk->curroffset = 0;
 	mutex_clear(&brk->lock);
-
 }
-
+/*
+static void init_shared_sbrk(void)	{
+	struct sbrk* brk = cpu_get_userbrk();
+	brk->numpages = (MB*2) / PAGE_SIZE;
+	brk->mappedpages = 0;
+	brk->addr = (void*)vmmap_alloc_pages(brk->numpages, PROT_RW, VMMAP_FLAG_LAZY_ALLOC);
+	if(brk->addr == NULL)	{
+		PANIC("Unable to allocate memory");
+	}
+	brk->curroffset = 0;
+	mutex_clear(&brk->lock);
+}*/
 
 static void init_after_linear_region(void)	{
 	ptr_t start = (ptr_t)(&HMEMFUNC_START);

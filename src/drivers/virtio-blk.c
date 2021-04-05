@@ -232,10 +232,20 @@ int virtio_blk_irq_cb(void)	{
 	return 0;
 }
 
+int blk_fstat(struct vfsopen* o, struct stat* statbuf)	{
+	struct stat s = {0};
+	s.st_blksize = BLK_UNIT_SIZE;
+
+	if(memcpy_to_user(statbuf, &s, sizeof(struct stat)))	return -USER_FAULT;
+	return OK;
+}
+
 static struct fs_struct virtioblkdev = {
 	.name = "block",
+	.open = vfs_empty_open,
 	.read = blk_read,
 	.write = blk_write,
+	.fstat = blk_fstat,
 };
 
 

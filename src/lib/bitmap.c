@@ -8,8 +8,13 @@ static inline void set_bit(char* c, int num) { *c |= (1<<num); }
 static inline void clear_bit(char* c, int num) { *c &= ~(1<<num); }
 
 struct bm* bm_create(unsigned long bytes)	{
-	struct bm* bm = (struct bm*)xalloc( sizeof(struct bm) );
-	void* b = (void*)xalloc(bytes);
+	struct bm* bm = (struct bm*)malloc( sizeof(struct bm) );
+	if(PTR_IS_ERR(bm))	return bm;
+	void* b = (void*)malloc(bytes);
+	if(PTR_IS_ERR(b))	{
+		free(bm);
+		return b;
+	}
 
 	bm_create_fixed(bm, (ptr_t)b, bytes);
 	return bm;

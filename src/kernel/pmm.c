@@ -55,7 +55,6 @@ ptr_t pmm_alloc(int pages)	{
 		else					count = 0;
 
 		if(count == pages)	{
-			
 			for(j = (1+i-pages); j < (i+pages); j++)	{
 				pmm->bitmap[j] = 1;
 			}
@@ -64,6 +63,8 @@ ptr_t pmm_alloc(int pages)	{
 			goto done;
 		}
 	}
+error:
+	PANIC("Unable to find physical page, must do paging");
 done:
 	mutex_release(&pmm->lock);
 	return ret;

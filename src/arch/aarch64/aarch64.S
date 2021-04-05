@@ -94,15 +94,23 @@ write_\reg:
 * Helper-macro to create wrapper for accessing user-memory using through the
 * usual C string function.
 */
-.macro COPY_USER_HELPER dir, func
+.macro COPY_USER_HELPER dir, func, ureg
 .global \func\()_\dir\()_user
 \func\()_\dir\()_user:
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 
+
 	mov x19, x0
 	mov x20, x1
 	mov x21, x2
+
+	/*
+	* Check if most significant bit is non-null
+	* If most significant bit is 1, this is kernel addr
+	*/
+	lsr x0, \ureg, #63
+	cbnz x0, .error_\func\()_\dir\()
 
 #if CONFIG_AARCH64_PAN
 	bl pan_disable
@@ -119,15 +127,16 @@ write_\reg:
 #endif
 
 	ldp x29, x30, [sp], #16
-	mov x0, x19
+	mov x0, #0
+.error_\func\()_\dir\():
 	ret
 .endm
 
 
-COPY_USER_HELPER to, strncpy
-COPY_USER_HELPER to, strncat
-COPY_USER_HELPER to, memcpy
-COPY_USER_HELPER from, memcpy
+COPY_USER_HELPER to, strncpy, x0
+COPY_USER_HELPER to, strncat, x0
+COPY_USER_HELPER to, memcpy, x0
+COPY_USER_HELPER from, memcpy, x1
 
 
 /**

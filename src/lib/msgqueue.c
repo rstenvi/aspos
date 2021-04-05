@@ -57,3 +57,11 @@ void* mq_try_recv(struct mq* mq)	{
 	return ret;
 }
 
+void* mq_recv(struct mq* mq)	{
+	void* ret = NULL;
+	ret = mq_try_recv(mq);
+	if(PTR_IS_ERR(ret))	{
+		ret = ERR_ADDR_PTR(-BLOCK_CURRENT);
+	}
+	return ret
+}

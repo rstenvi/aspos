@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include "types.h"
 
 
@@ -18,12 +17,26 @@
 #define FLAG_SET(val,flag) ((val & (flag)) == (flag))
 
 #define IS_ALIGNED_POW2(val) ((val & (val - 1)) == 0)
+#define ALIGN_UP_POW2(num,val) { if(num == 0)	num = val; if((num % val) != 0)	{ num |= (val - 1); num++; } }
+#define ALIGN_DOWN_POW2(num,val) { if(num != 0 && (num % val) != 0) { num &= ~(val-1); } }
 
 #define MIN(a,b) ((a < b) ? a : b)
 #define MAX(a,b) ((a > b) ? a : b)
 
-#define TMALLOC(name,type) type* name = (type*)malloc( sizeof(type) )
+#define TMALLOC(name,type) \
+	type* name = (type*)malloc( sizeof(type) );
+#define TZALLOC(name,type) \
+	TMALLOC(name,type) \
+	if(!PTR_IS_ERR(name)) {\
+		memset(name, 0x00, sizeof(*name)); \
+	}
 
+#define TMALLOC_ERR(name,type) \
+	type* name = (type*)malloc( sizeof(type) ); \
+	if(name == NULL)	{ return -(MEMALLOC); }
+#define TZALLOC_ERR(name,type) \
+	TMALLOC_ERR(name,type) \
+	memset(name, 0x00, sizeof(*name));
 
 /** Hold mutex after open */
 #define MUTEX_FLAG_HOLD (1 << 0)
@@ -66,7 +79,7 @@ enum RETURN {
 	* Used by drivers to indicate that the request is blocked by hardware and
 	* the thread manager should put the thread into a blocking state.
 	*
-	* The which returned BLOCK_THREAD is responsible for waking up the thread.
+	* The driver which returned BLOCK_THREAD is responsible for waking up the thread.
 	*/
 	BLOCK_THREAD,
 
@@ -78,7 +91,14 @@ enum RETURN {
 	USER_FAULT,
 
 	USER_WAKEUP,
+
+	UNSUPPORTED_FUNC,
+	ERROR_LAST,
 };
+
+#define ERR_ADDR_PTR(num) (void*)(num)
+#define PTR_IS_ERR(ptr)   (((void*)ptr > (void*)(-ERROR_LAST)) || (ptr == NULL))
+#define PTR_TO_ERRNO(ptr) (ptr == NULL) ? -GENERAL_FAULT : (int)((ptr_t)(ptr))
 
 #define OPT_DATALINK_BIT  (1 << 25)
 #define OPT_NETWORK_BIT   (2 << 25)
@@ -116,9 +136,6 @@ struct XIFO {
 	mutex_t lock;
 };
 
-#define ERR_ADDR_PTR(num) (void*)(num)
-
-#define PTR_IS_ERR(ptr) (((void*)ptr == (void*)-1) || (ptr == NULL))
 
 #define __utext __attribute__((__section__(".user.text")))
 #define __udata __attribute__((__section__(".user.data")))
@@ -157,6 +174,12 @@ void* xifo_pop_front(struct XIFO* xifo);
 void* xifo_peep_front(struct XIFO* xifo);
 void* xifo_peep_back(struct XIFO* xifo);
 size_t xifo_count(struct XIFO* xifo);
+void* xifo_search(struct XIFO* xifo, void* val, bool (*search)(void*,void*));
+
+#define XIFO_LOCK(xifo)   mutex_acquire(&xifo->lock);
+#define XIFO_UNLOCK(xifo) mutex_release(&xifo->lock);
+//#define for_xifo(xifo,i) for(i = xifo->first; i < xifo->last; i++)
+
 
 // ------------------------ string.c --------------------- //
 
@@ -232,6 +255,13 @@ int sem_wait(struct semaphore* sem);
 int sem_free(struct semaphore* sem);
 
 
+// --------------------------- msgqueue.c -------------------------- //
+struct mq;
+struct mq* mq_new(size_t max);
+int mq_init(struct mq* mq, size_t max);
+int mq_send(struct mq* mq, void* msg);
+void* mq_try_recv(struct mq* mq);
+void* mq_recv(struct mq* mq);
 
 
 
@@ -240,14 +270,82 @@ int yield(void);
 int tsleep(int ticks);
 int msleep(uint64_t ms);
 int new_thread(uint64_t entry, int count, ...);
+int exit_thread(int);
 int dup(int oldfd);
 int get_char(int fd);
 int put_char(int fd, int c);
 int wait_tid(int tid);
 int get_tid(void);
+int conf_thread(ptr_t,ptr_t);
+int poweroff(void);
+//int afstat(int fd, void* statbuf);
+//int fcntl(int fd, ptr_t cmd, ptr_t arg);
+/*
+size_t lseek(int fd, size_t offset, int whence);
+int read(int fd, void* buf, size_t max);
+int write(int fd, void* buf, size_t max);
+int close(int fd);
+*/
 
-// ---------------------------- network.c -------------------------- //
+
+/**
+* Get a comma-separated list if enabled CPU-features
+*/
+int cpu_feaures_enabled(char*,size_t);
 
 
+// LWIP provides its own implementation of iovec
+#if !defined(LWIP_USER)
+struct iovec {
+	void  *iov_base;
+	size_t iov_len;
+};
+#else
+struct iovec;
+#endif
+
+/*
+ssize_t vmsplice(int fd, const struct iovec *iov, unsigned long nr_segs, unsigned int flags);
+ssize_t splice(int fd_in, off_t *off_in, int fd_out, off_t *off_out, size_t len, unsigned int flags);
+*/
+ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+/*
+ssize_t preadv(int fd, const struct iovec *iov, int iovcnt, off_t offset);
+ssize_t pwritev(int fd, const struct iovec *iov, int iovcnt, off_t offset);
+ssize_t preadv2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags);
+ssize_t pwritev2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags);
+*/
+
+
+#define THREAD_CONF_THREAD_EXIT 1
+#define THREAD_CONF_EXC_EXIT    2
+
+
+#define CUSE_SET_FS_OPS 1
+#define CUSE_REGISTER   2
+#define CUSE_UNREGISTER 3
+#define CUSE_DETACH     4
+#define CUSE_SET_FUNC_EMPTY 5
+#define CUSE_MOUNT      6
+
+
+#define CONSOLE_FCNTL_MODE (1)
+
+enum CHARDEV_MODE {
+    CHAR_MODE_BYTE = 0,
+    CHAR_MODE_LINE,
+    CHAR_MODE_LINE_ECHO,
+};
+
+
+// These are user only
+struct fs_struct;
+int init_dev_null(bool detach);
+int cuse_mount(struct fs_struct* fs, const char* mnt, bool detach);
+int seek_read(int fd, void* buf, size_t len, size_t off);
+int seek_write(int fd, void* buf, size_t len, size_t off);
+int init_proc(bool detach);
+int init_ustart(const char* mnt, int blockfd);
 
 #endif

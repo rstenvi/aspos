@@ -32,4 +32,8 @@
 #define SYS_WAIT_TID 18
 #define SYS_GET_TID 19
 
+#define SYS_CONF_THREAD 20
+
+#define SYS_FCNTL 21
+
 #endif

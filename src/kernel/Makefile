@@ -10,6 +10,7 @@ OBJ += elf-loader.o
 OBJ += power.o
 OBJ += vfs.o
 OBJ += cmdline.o
+OBJ += slab.o
 
 all: $(OBJ)
 

@@ -237,37 +237,39 @@ int mmu_init_user_memory()	{
 }
 
 int __mmu_map_pages(ptr_t vaddr, ptr_t paddr, int pages, uint64_t* pgd, ptr_t flags)	{
-	int i, res;
+	int i, res = 0;
 	ptr_t add;
 	for(i = 0; i < pages; i++)	{
 		add = i * PAGE_SIZE;
 		res = mmu_create_entry(vaddr + add, paddr + add, pgd, flags);
 		if(res != 0)	{
-			PANIC("Unable to map vaddr for usermode");
+			PANIC("Unable to map vaddr");
 		}
 	}
 	isb();
-	return 0;
+	return res;
 }
 
 int mmu_map_dma(ptr_t paddr, ptr_t stop)	{
+	int ret = 0;
 	uint64_t* pgd = (uint64_t*)(cpu_get_pgd());
 	ALIGN_DOWN_POW2(paddr, PAGE_SIZE);
 	ALIGN_UP_POW2(stop, PAGE_SIZE);
 
 	ptr_t vaddr = (ARM64_VA_LINEAR_START + paddr);
-	__mmu_map_pages(
+	ret = __mmu_map_pages(
 		vaddr, paddr, (stop - paddr) / PAGE_SIZE , pgd, ARM64_MMU_ENTRY_KERNEL_RW | ARM64_MMU_ENTRY_ATTR_DMA);
 
 	isb();
-	return 0;
+	return ret;
 }
 
 static int _mmu_map_pages(ptr_t vaddr, int pages, ptr_t flags, uint64_t* pgd)	{
+	int ret = 0;
 	ptr_t paddr = pmm_alloc(pages);
-	__mmu_map_pages(vaddr, paddr, pages, pgd, flags);
+	ret = __mmu_map_pages(vaddr, paddr, pages, pgd, flags);
 	isb();
-	return 0;
+	return ret;
 }
 
 static ptr_t _mmu_prot_to_flags(bool user, enum MEMPROT prot)	{
@@ -368,6 +370,29 @@ ptr_t mmu_va_to_pa(ptr_t vaddr)	{
 	if(ptd == NULL)	return 0;
 
 	return (ptd[l3idx] & ARM64_MMU_OA_MASK) | (vaddr & ARM64_MMU_OFFSET_MASK);
+}
+
+bool mmu_addr_mapped(ptr_t addr, size_t len, int type)	{
+	ptr_t res;
+	size_t off;
+	int invalid = 0;
+
+	ALIGN_DOWN_POW2(addr, PAGE_SIZE);
+	ALIGN_UP_POW2(len, PAGE_SIZE);
+	for(off = 0; off < len; off += PAGE_SIZE)	{
+		res = mmu_va_to_pa((ptr_t)addr + off);
+		if(res == 0)	{
+			if(type == MMU_ALL_MAPPED)	{
+				return false;
+			}
+		}
+		else	{
+			if(type == MMU_ALL_UNMAPPED)	{
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 int mmu_map_pages(ptr_t vaddr, int pages, enum MEMPROT prot)	{

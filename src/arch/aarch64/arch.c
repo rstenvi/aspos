@@ -49,6 +49,27 @@ ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool 
 	return nstack;
 }
 
+/*
+* TODO: Need to check length before copying
+*/
+ptr_t arch_thread_strcpy_stack(struct exception* e, char* str)	{
+	int len, rlen;
+	ptr_t user_sp;
+
+	user_sp = e->saved_sp;
+
+	// Get real length of string
+	rlen = strlen(str);
+	len = rlen;
+	ALIGN_UP_POW2(len, 16);
+	user_sp -= len;
+	memcpy_to_user((void*)user_sp, str, rlen);
+
+	e->saved_sp = user_sp;
+
+	return user_sp;
+}
+
 int arch_thread_set_arg(void* sp, ptr_t arg, int num)	{
 	struct exception* e = (struct exception*)sp;
 

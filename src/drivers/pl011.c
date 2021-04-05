@@ -74,11 +74,6 @@
 
 #define UART_FR_RXFE (1 << 4)
 
-enum CHARDEV_MODE {
-	CHAR_MODE_BYTE = 0,
-	CHAR_MODE_LINE,
-};
-
 struct uart_read {
 	void* uaddr;
 	size_t max;
@@ -86,6 +81,7 @@ struct uart_read {
 };
 
 struct uart_struct {
+	mutex_t lock;
 	ptr_t base;
 
 	// Buffer we maintain
@@ -212,8 +208,11 @@ static int check_wakeup_read(void)	{
 	char last = uart.data[uart.curridx-1];
 	int ret = OK;
 
+	if(uart.mode == CHAR_MODE_LINE_ECHO)	{
+		DMAW32(uart.base, (uint32_t)(last));
+	}
 	
-	if(uart.mode == CHAR_MODE_LINE && last == '\n')	{
+	if((uart.mode == CHAR_MODE_LINE || uart.mode == CHAR_MODE_LINE_ECHO) && last == '\n')	{
 		ret = USER_WAKEUP;
 	}
 	else if(uart.mode == CHAR_MODE_BYTE)	{
@@ -300,6 +299,26 @@ int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
 	return count;
 }
 
+static int _set_mode(ptr_t arg)	{
+	mutex_acquire(&uart.lock);
+	uart.mode = (enum CHARDEV_MODE)arg;
+	mutex_release(&uart.lock);
+	return OK;
+}
+
+int pl011_fcntl(struct vfsopen* o, ptr_t cmd, ptr_t arg)	{
+	int res = OK;
+	switch(cmd)	{
+	case CONSOLE_FCNTL_MODE:
+		res = _set_mode(arg);
+		break;
+	default:
+		res = -USER_FAULT;
+		break;
+	}
+	return res;
+}
+
 int pl011_receive(void)	{
 	uint32_t r = 0;
 	int res;
@@ -348,10 +367,13 @@ static int _pl011_irq_init(int type, int irqno, int irqflags)	{
 
 static struct fs_struct consoledev = {
 	.name = "console",
+	.open = vfs_empty_open,
+	.close = vfs_empty_close,
 	.read = pl011_read,
 	.write = pl011_write,
 	.getc = pl011_getc,
 	.putc = pl011_putc,
+	.fcntl = pl011_fcntl,
 };
 
 

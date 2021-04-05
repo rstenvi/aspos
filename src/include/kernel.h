@@ -156,6 +156,12 @@ struct process {
 	struct sbrk ubrk;
 	ptr_t user_pgd;
 	struct loaded_exe* exe;
+	struct llist* fds;
+};
+
+struct thread_fd_open {
+	struct fs_struct* fs;
+	struct vfsopen* open;
 };
 
 struct tlist;
@@ -163,15 +169,25 @@ struct tlist;
 
 /**
 * Information we store about a thread.
+* TODO: Unsure if we will need a lock on this object
+*  - Only modified on CPU running or on different CPUs when blocked
 */
 struct thread {
 	tid_t id;
 	ptr_t ustack;
 	ptr_t kstack;
 	ptr_t stackptr;
+
+	ptr_t retval;
+
+	// This is blocking, so there can only be one pending
+	struct readwritev* pending;
+
+	/*
+	* Any signals pending to the thread.
+	*/
+	//struct XIFO* sigpending;
 };
-
-
 
 /**
 * All the information associated with all running threads.
@@ -182,6 +198,21 @@ struct threads {
 	*/
 	struct bm* freetids;
 
+	/**
+	* Any exceptions in user-mode which are pending execution.
+	*
+	* This can be signals and user-mode implementations of drivers.
+	*/
+	//struct XIFO* userpending;
+
+	/**
+	* Allocated objects and stacks which can be used if a new user-
+	* function should be called.
+	*
+	* These are used as lightweight threads, which are meant to be short-
+	* lived.
+	*/
+//	struct XIFO* userfuncavail;
 
 	/**
 	* Kernel thread which we can always execute on one or more CPUs.
@@ -213,9 +244,11 @@ struct threads {
 	*/
 	struct llist* waittid;
 
+	//struct llist* fd_fs_mapping;
+
 	/**
 	* Information associated with a process / address space.
-	* 
+	*
 	* If the system is modified in the future to support multiple processes,
 	* most of the information that needs to changed is stored in this struct.
 	*/
@@ -223,6 +256,9 @@ struct threads {
 
 	/** Lock which determines if any CPU is working on threads. */
 	mutex_t lock;
+
+	ptr_t thread_exit;
+	ptr_t exc_exit;
 };
 
 #if CONFIG_COLLECT_STATS > 0
@@ -238,7 +274,6 @@ struct vmmap {
 	// Which pages are free and which are taken
 	struct bm bm;
 
-	// The 
 	ptr_t vaddrstart;
 
 	// Number of blocks we control
@@ -510,10 +545,10 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 
 }
 
-
+/*
 #define ALIGN_UP_POW2(num,val) { if(num == 0)	num = val; if((num % val) != 0)	{ num |= (val - 1); num++; } }
 #define ALIGN_DOWN_POW2(num,val) { if(num != 0 && (num % val) != 0) { num &= ~(val-1); } }
-
+*/
 
 #define ASSERT_TRUE(cond,msg) if( !(cond) ) { PANIC(msg); }
 #define ASSERT_FALSE(cond,msg) if( (cond) ) { PANIC(msg); }
@@ -568,7 +603,7 @@ void vmmap_unmap(ptr_t vaddr);
 
 // ---------------------- thread.c ------------------------ //
 int init_threads();
-struct thread* new_thread_kernel(ptr_t, bool user, bool addlist);
+struct thread* new_thread_kernel(ptr_t, ptr_t, bool user, bool addlist);
 
 int thread_new_main(struct loaded_exe* exe);
 int mmu_create_linear(ptr_t start, ptr_t end);
@@ -582,22 +617,41 @@ int thread_sleep(ptr_t seconds);
 int thread_schedule_next(void);
 int thread_exit(ptr_t ret);
 int thread_ready(void);
+int thread_add_ready(struct thread* t, bool front);
 int thread_read(int fd, void* buf, size_t count);
 int thread_wakeup(int tid, ptr_t res);
 int thread_yield(void);
 int thread_open(const char* name, int flags, int mode);
+int thread_fcntl(int fd, ptr_t cmd, ptr_t arg);
 int thread_read(int fd, void* buf, size_t count);
 int thread_close(int fd);
 int thread_dup(int fd);
 int thread_getchar(int fd);
 int thread_putchar(int fd, int c);
+int thread_lseek(int fd, off_t offset, int whence);
+int thread_configure(ptr_t cmd, ptr_t arg);
+int thread_fstat(int fd, struct stat* statbuf);
+struct vfsopen* thread_find_fd(int fd);
+
+#define VFS_JOB_READ  1
+#define VFS_JOB_WRITE 2
+struct readwritev {
+	struct iovec* iov;
+	struct vfsopen* open;
+	int iovcnt;
+	int current;
+	int job;
+	size_t retval;
+};
+
+typedef int (*vjob_perform)(struct vfsopen*,void*,size_t);
 
 // -------------------------- elf-load.c --------------------- //
 struct loaded_exe* elf_load(void* addr);
 
 
 // -------------------------- power.c ------------------------- //
-void poweroff(void);
+void kern_poweroff(void);
 
 // -------------------------- clibintegration.c --------------- //
 
@@ -618,11 +672,46 @@ double __trunctfdf2(long double a);
 char* cmdarg_value(const char* key);
 
 
-/**
-* todo: Should have a separate subfs for devices under /dev/
-*/
+// ------------------------ vfs.c ----------------------------- //
 int device_register(struct fs_struct* dev);
+int device_unregister(struct fs_struct* dev);
+bool vfs_functions_valid(struct fs_struct* fs, bool user);
 
 int uart_early_init();
+
+
+// ---------------------- signal.c ----------------------------- //
+/*
+struct sigstack {
+	void *ss_sp;
+	size_t ss_size;
+	int ss_flags;
+};
+typedef struct sigstack stack_t;
+struct siginfo {
+	int si_signo;
+	int si_code;
+	int si_errno;
+};
+typedef struct siginfo siginfo_t;
+//typedef int sigset_t;
+struct sigaction {
+	void (*sa_handler)(int);
+	void (*sa_sigaction)(int, siginfo_t *, void *);
+	struct sigset sa_mask;
+	int sa_flags;
+	void (*sa_restorer)(void);
+};
+
+union sigval {
+	int sival_int;
+	void* sival_ptr;
+};
+*/
+
+
+struct iovec* copy_iovec_from_user(const struct iovec* iov, int iovcnt);
+struct readwritev* create_kernel_iov(const struct iovec* iov, int iovcnt, int job);
+bool iovec_validate_addrs(const struct iovec* iov, int iovcnt);
 
 #endif

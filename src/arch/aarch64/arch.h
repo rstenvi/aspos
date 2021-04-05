@@ -64,6 +64,7 @@ ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool 
 int arch_thread_set_arg(void* sp, ptr_t arg, int num);
 int arch_thread_set_return(void* sp, ptr_t arg);
 int arch_thread_set_exit(void* sp, ptr_t addr);
+ptr_t arch_thread_strcpy_stack(struct exception* e, char* str);
 void arch_schedule(void* sp);
 
 void set_stack(uint64_t, void (*cb_t)(void));
@@ -110,5 +111,9 @@ static inline void arm64_enable_cntv()	{
 	ctl |= CNTV_CTL_ENABLE;
 	write_cntv_ctl_el0(ctl);
 }
+
+#define MMU_ALL_MAPPED   1
+#define MMU_ALL_UNMAPPED 2
+bool mmu_addr_mapped(ptr_t addr, size_t len, int type);
 
 #endif

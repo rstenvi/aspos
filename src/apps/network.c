@@ -3,7 +3,7 @@
 #include <fcntl.h>
 #include <string.h>
 
-#include "aspos.h"
+#include "lib.h"
 #include "aspos_lwip.h"
 
 #include "lwip/api.h"
