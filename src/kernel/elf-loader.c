@@ -95,7 +95,7 @@ bool is_elf(void* addr)	{
 // On Qemu, ramdisk is loaded at 0x44000000
 // which is 2MB below DTB
 // Should look in DTB and /chosen" -> "linux,initrd-start
-struct loaded_exe* elf_load(void* addr)	{
+struct loaded_exe* elf_load(ptr_t* pgd, void* addr)	{
 	int i;
 	struct elf_sh* shdr;
 	struct elf_ph* phdr;
@@ -114,19 +114,19 @@ struct loaded_exe* elf_load(void* addr)	{
 
 	logi("ELF version %i | entry: 0x%x\n", hdr->e_version, hdr->e_entry);
 
-	exe = (struct loaded_exe*)malloc( sizeof(struct loaded_exe) );
+	exe = (struct loaded_exe*)kmalloc( sizeof(struct loaded_exe) );
 	ASSERT_FALSE(PTR_IS_ERR(exe), "Unable to allocate memory");
 	memset(exe, 0x00, sizeof(exe));
 
 	// Fill in exe varaibles
 	exe->entry = hdr->e_entry;
 	exe->num_regions = hdr->e_phnum;
-	exe->regions = (struct mem_region*)malloc( sizeof(struct mem_region) * exe->num_regions);
+	exe->regions = (struct mem_region*)kmalloc( sizeof(struct mem_region) * exe->num_regions);
 	ASSERT_FALSE(PTR_IS_ERR(exe->regions), "Unable to allocate memory");
 
 	phdr = (addr + hdr->e_phoff);
 	for(i = 0; i < hdr->e_phnum; i++)	{
-		logi("\tPH 0x%x 0x%x 0x%x\n",
+		logd("\tPH 0x%x 0x%x 0x%x\n",
 			phdr->p_offset, phdr->p_vaddr, phdr->p_paddr);
 
 		ptr_t rvaddr = phdr->p_vaddr;
@@ -140,16 +140,19 @@ struct loaded_exe* elf_load(void* addr)	{
 		fsize += (phdr->p_vaddr - rvaddr);
 		ALIGN_UP_POW2(fsize, PAGE_SIZE);
 
-		logi("\tmapping 0x%lx -> 0x%lx\n", rvaddr, rvaddr + msize);
-		mmu_map_pages(rvaddr, msize / PAGE_SIZE, PROT_RWX);
+		logd("\tmapping 0x%lx -> 0x%lx\n", rvaddr, rvaddr + msize);
+		mmu_map_pages_pgd(pgd, rvaddr, msize / PAGE_SIZE, PROT_RWX);
+//		mmu_map_pages(rvaddr, msize / PAGE_SIZE, PROT_RWX);
 
 		exe->regions[i].start = rvaddr;
 		exe->regions[i].size = msize;
 		exe->regions[i].prot = PROT_RWX;
 
 		// Start with everything as 0
-		memset((void*)rvaddr, 0x00, msize);
-		memcpy((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
+		//memset((void*)rvaddr, 0x00, msize);
+		//memcpy((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
+		mmu_memset(pgd, (void*)rvaddr, 0x00, msize);
+		mmu_memcpy(pgd, (void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
 
 		// TODO:
 		// - change protection on pages

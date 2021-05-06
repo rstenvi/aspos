@@ -21,7 +21,7 @@ aspos.elf: deps
 	$(LD) -T arch/$(ARCH)/linker.lds -static $(OBJ) $(LDFLAGS) -o $@ -L$(NEWLIBLOC) -lc
 
 libaspos.a: deps
-	$(AR) rs libaspos.a $(LIB) $(ULIB) $(UDRV) $(ULWIP) $(USTAR)
+	$(AR) rs libaspos.a $(ULIB) $(UDRV) $(ULWIP) $(USTAR)
 
 disk.img:
 	dd if=/dev/zero of=disk.img bs=1024 count=131072

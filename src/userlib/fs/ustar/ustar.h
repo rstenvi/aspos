@@ -8,13 +8,24 @@
 
 #include "lib.h"
 
+
+#define TYPE_REG  0
+#define TYPE_LNK  1
+#define TYPE_SYM  2
+#define TYPE_CHR  3
+#define TYPE_BLK  4
+#define TYPE_DIR  5
+#define TYPE_FIFO 6
+#define TYPE_CONT 7
+
 struct tar_entry {
 	char* name;
 	uint32_t mode, uid, gid;
 	uint64_t size, mtime;
 	uint8_t type;
 	uint32_t start_meta;
-	struct tar_entry* next;
+	struct XIFO* childs;
+//	struct tar_entry* next;
 };
 
 struct tar_meta {

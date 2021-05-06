@@ -18,34 +18,27 @@
 #include "lib.h"
 #include "drivers.h"
 #include "vfs.h"
+#include "kasan.h"
+
+
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
+#define READ_ONCE(x) ({ typeof(x) ___x = ACCESS_ONCE(x); ___x; })
+#define WRITE_ONCE(x, val) do { ACCESS_ONCE(x) = (val); } while (0)
+#define barrier() __asm__ __volatile__("": : :"memory")
+
 
 #define __noreturn __attribute__((noreturn))
-
-
 
 #define THREAD_STACK_BOTTOM(tid) \
 	(ARM64_VA_THREAD_STACKS_START + (PAGE_SIZE * (CONFIG_THREAD_STACK_BLOCKS * ntid)))
 #define THREAD_STACK_TOP(tid) \
 	(THREAD_STACK_BOTTOM(tid) + (CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE))
 
-
 // kstart.c
 extern struct os_data osdata;
 
 void panic(const char*, const char*, int);
-#define PANIC(msg) panic(msg, __FILE__, __LINE__)
-#define BUG(msg) panic(msg, __FILE__, __LINE__);
 
-
-
-/*
-typedef void* (*net_type_init_t)(size_t*);
-typedef void* (*net_type_optset_t)(void*,size_t*,ptr_t,ptr_t);
-typedef int (*net_type_finalize_t)(void*,size_t,size_t);
-typedef int (*net_type_transport_t)(struct vecbuf*,uint16_t,uint16_t);
-typedef int (*net_type_net_t)(struct vecbuf*,char*,char*);
-typedef int (*net_type_link_t)(void*,size_t,struct vecbuf*);
-*/
 
 typedef int (*kputc_t)(char);
 typedef int (*kgetc_t)(void);
@@ -65,6 +58,7 @@ typedef uint64_t ptr_t;
 #define VMMAP_FLAG_LAZY_ALLOC  (1 << 0)
 #define VMMAP_FLAG_PHYS_CONTIG (1 << 1)
 #define VMMAP_FLAG_ZERO        (1 << 2)
+#define VMMAP_FLAG_KASAN_NOMARK (1 << 3)
 
 // TODO: Not in use yet, but might be needed in the future
 //#define VMMAP_FLAG_DEVICE (1 << 2)
@@ -97,6 +91,7 @@ struct loaded_exe {
 	int num_regions;
 	struct mem_region* regions;
 	ptr_t entry;
+	int references;
 };
 
 struct NetConfig {
@@ -105,13 +100,6 @@ struct NetConfig {
 	ipv4_t netmask;
 	uint8_t mac[6];
 };
-
-/*
-struct network_cb {
-	net_type_init_t init;
-	net_type_optset_t optset;
-	net_type_finalize_t finalize;
-};*/
 
 struct dtb_property {
 	char* name;
@@ -152,16 +140,79 @@ struct sbrk {
 	mutex_t lock;
 };
 
+struct virtmem {
+	ptr_t start;
+	size_t pages;
+	struct bm* free;
+};
+struct mmapped {
+	ptr_t start;
+	int pages;
+	int flags;
+};
+
+// The size of each slab entry, it's possible to allocate larger elements, one
+// just has to allocate multiple slabs.
+#define PROC_SLAB_SIZE (32)
+#define PROC_SLAB_NUM_PAGES (2)
+struct userslab {
+	ptr_t start;
+	int slabsz, slabs;
+	struct bm* free;
+};
+
 struct process {
+	/** 
+	* Lock should be held briefly and only when doing the following:
+	* - Acquiring a unique file id (done when using `fileid_unique`)
+	* - Mapping in user memory
+	* - Writing to individual variables which are not list, queues, bitmap, etc.
+	* - Configuring values in process
+	*/
+	mutex_t lock;
+#if defined(CONFIG_MULTI_PROCESS)
+	int pid;
+	int num_threads;
+#endif
+	struct kern_user_struct* user;
 	struct sbrk ubrk;
 	ptr_t user_pgd;
 	struct loaded_exe* exe;
 	struct llist* fds;
+	struct bm* fileids;
+	struct userslab* userslab;
+	struct llist* memregions;
+	struct llist* mmapped;
+	bool keepalive;
+	struct user_thread_info* thread_user_addr;
 };
 
 struct thread_fd_open {
 	struct fs_struct* fs;
 	struct vfsopen* open;
+	int open_flags;
+};
+
+
+struct driver_job_unmap {
+	ptr_t call_addr, drv_addr;
+	int pages;
+};
+
+struct driver_job {
+	int sysno;
+	struct thread* caller;
+	/**
+	* If this is a user-mode 
+	*/
+	struct process* driver;
+	/**
+	* Different data stored on different syscalls:
+	* open: struct thread_fd_open
+	* read: struct thread_fd_open
+	* write: struct thread_fd_open
+	*/
+	void* data;
 };
 
 struct tlist;
@@ -187,6 +238,12 @@ struct thread {
 	* Any signals pending to the thread.
 	*/
 	//struct XIFO* sigpending;
+	struct process* owner;
+#if defined(CONFIG_KCOV)
+	struct kcov* kcov;
+#endif
+
+	struct user_thread_info tinfo;
 };
 
 /**
@@ -244,6 +301,16 @@ struct threads {
 	*/
 	struct llist* waittid;
 
+	/**
+	* If a job is blocked by the driver and we might need to update data
+	* depending on success / failure, then we need to store some information
+	* about what to on interrupt from lower half.
+	*/
+	//struct llist* driverjobs;
+
+	struct llist* texitjobs;
+	struct llist* lowhalfjobs;
+
 	//struct llist* fd_fs_mapping;
 
 	/**
@@ -252,7 +319,12 @@ struct threads {
 	* If the system is modified in the future to support multiple processes,
 	* most of the information that needs to changed is stored in this struct.
 	*/
+#if defined(CONFIG_MULTI_PROCESS)
+	struct llist* procs;
+	struct bm* procids;
+#else
 	struct process proc;
+#endif
 
 	/** Lock which determines if any CPU is working on threads. */
 	mutex_t lock;
@@ -286,6 +358,16 @@ enum cpu_state {
 	BUSYLOOP,
 };
 
+#if defined(CONFIG_RCU)
+struct rcu_item_wait_free {
+	void* addr;
+	rcu_status_t status;
+};
+struct rcu_wait_free {
+	int numwaiting, maxwaiting;
+	struct rcu_item_wait_free* waiting;
+};
+#endif
 
 /**
 * Information about one CPU.
@@ -307,6 +389,11 @@ struct cpu {
 
 	/** Current state of the CPU */
 	enum cpu_state state;
+
+#if defined(CONFIG_RCU)
+	rcu_t in_rcu;
+	struct rcu_wait_free waitfree;
+#endif
 };
 
 typedef int (*cpu_on_t)(int,ptr_t);
@@ -385,20 +472,53 @@ struct os_data {
 
 	struct fs_component root;
 
-	struct bm* fileids;
-
 	mutex_t loglock;
 };
 
+static inline struct threads* cpu_get_threads() { return &(osdata.threads); }
+
+#if defined(CONFIG_MULTI_PROCESS)
+static inline struct process* current_proc()	{
+	struct thread* t = osdata.cpus.cpus[cpu_id()].running;
+//	ASSERT_VALID_PTR(t);
+//	ASSERT_VALID_PTR(t->owner);
+	return (t) ? t->owner : NULL;
+}
+static inline pid_t current_pid()	{
+	return osdata.cpus.cpus[cpu_id()].running->owner->pid;
+}
+static inline pid_t pid_unique()	{
+	struct threads* allt = cpu_get_threads();
+	int r = bm_get_first(allt->procids);
+	return r;
+}
+static inline void set_thread_owner(struct thread* t)	{
+	t->owner = current_proc();
+	ASSERT_VALID_PTR(t->owner);
+	t->owner->num_threads++;
+}
+#else
+static inline struct process* current_proc()	{
+	struct threads* allt = cpu_get_threads();
+	return &(allt->proc);
+}
+static inline pid_t current_pid()	{
+	return 0;
+}
+static inline void set_thread_owner(struct thread* t) { }
+#endif
+
 
 static inline int fileid_unique(void)	{
-	int r = bm_get_first(osdata.fileids);
-	if(r < 0)	return r;
-
+	struct process* p = current_proc();
+	mutex_acquire(&p->lock);
+	int r = bm_get_first(p->fileids);
+	mutex_release(&p->lock);
 	return r;
 }
 static inline void fileid_free(int id)	{
-	bm_clear(osdata.fileids, id);
+	struct process* p = current_proc();
+	bm_clear(p->fileids, id);
 }
 
 
@@ -422,16 +542,34 @@ static inline struct pmm* cpu_get_pmm() { return &(osdata.pmm); }
 static inline struct sbrk* cpu_get_kernbrk() { return &(osdata.kernbrk); }
 static inline void* cpu_get_dtb() { return osdata.dtb; }
 static inline ptr_t cpu_get_pgd() { return osdata.kpgd; }
-static inline ptr_t cpu_get_user_pgd() { return osdata.upgd; }
-static inline struct threads* cpu_get_threads() { return &(osdata.threads); }
+//static inline ptr_t cpu_get_user_pgd() { return osdata.upgd; }
+//static inline void cpu_set_user_pgd(ptr_t o) { osdata.upgd = o; }
+static inline void cpu_set_user_pgd(ptr_t o) { current_proc()->user_pgd = o; }
+static inline ptr_t cpu_get_user_pgd() { return current_proc()->user_pgd; }
+static inline ptr_t* thread_get_user_pgd(struct thread* t) { return (ptr_t*)(t->owner->user_pgd); }
 static inline ptr_t cpu_linear_offset() { return osdata.linear_offset; }
 static inline struct vmmap* cpu_get_vmmap() { return &(osdata.vmmap); }
 
 static inline struct cpu* curr_cpu() { return &(osdata.cpus.cpus[cpu_id()]); }
 
+
 static inline int current_tid(void) {
 	return osdata.cpus.cpus[cpu_id()].running->id;
 }
+static inline struct thread* current_thread(void)	{
+	return osdata.cpus.cpus[cpu_id()].running;
+}
+
+#if defined(CONFIG_KCOV) && !defined(UMODE)
+static inline struct kcov* get_current_kcov(void) {
+	struct thread* t = current_thread();
+	return (t) ? t->kcov : NULL;
+}
+static inline struct kcov* set_current_kcov(struct kcov* kcov) {
+	struct thread* t = current_thread();
+	if(t) t->kcov = kcov;
+}
+#endif
 
 static inline int cpus_busyloop(void)	{
 	int i, ret = 0;
@@ -550,9 +688,6 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 #define ALIGN_DOWN_POW2(num,val) { if(num != 0 && (num % val) != 0) { num &= ~(val-1); } }
 */
 
-#define ASSERT_TRUE(cond,msg) if( !(cond) ) { PANIC(msg); }
-#define ASSERT_FALSE(cond,msg) if( (cond) ) { PANIC(msg); }
-#define ASSERT_VALID_PTR(ptr) ASSERT_FALSE(PTR_IS_ERR(ptr), "ptr invalid")
 
 
 #define DMAR8(addr, res) res = *((volatile uint8_t*)(addr))
@@ -569,6 +704,7 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 uint32_t dtb_translate_ref(void* ref);
 void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr);
 
+void dtb_destroy(struct dtb_node* root);
 void dtb_second_pass(struct dtb_node* root);
 struct dtb_node* dtb_parse_data(void* dtb);
 struct dtb_node* dtb_find_name(const char* n, bool exact, int skip);
@@ -579,13 +715,15 @@ uint32_t dtb_get_int(struct dtb_node* node, const char* name);
 int dtb_get_interrupts(struct dtb_node* node, uint32_t* type, uint32_t* nr, uint32_t* flags);
 void dtb_dump_compatible(struct dtb_node* n);
 bool dtb_is_compatible(struct dtb_node* n, const char* c);
+int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
 
 // ----------------------- pmm.c ---------------------- //
 int pmm_init();
 ptr_t pmm_alloc(int pages);
 int pmm_mark_mem(ptr_t start, ptr_t end);
-void pmm_free(ptr_t page);
-
+int pmm_free(ptr_t page);
+int pmm_add_ref(ptr_t page);
+int pmm_ref(ptr_t page);
 
 int uart_early_putc(char c);
 int uart_early_getc(void);
@@ -600,28 +738,34 @@ ptr_t vmmap_alloc_page(enum MEMPROT prot, ptr_t flags);
 int vmmap_map_page(ptr_t vaddr);
 int vmmap_map_pages(ptr_t vaddr, int pages);
 void vmmap_unmap(ptr_t vaddr);
+void vmmap_unmap_pages(ptr_t vaddr, int pages);
 
 // ---------------------- thread.c ------------------------ //
 int init_threads();
-struct thread* new_thread_kernel(ptr_t, ptr_t, bool user, bool addlist);
+struct thread* new_thread_kernel(struct process*, ptr_t, ptr_t, bool user, bool addlist);
 
-int thread_new_main(struct loaded_exe* exe);
+ptr_t thread_mmap_mem(void* addr, size_t length, enum MEMPROT prot, int flags, bool ins);
+//int thread_proc_keepalive(void);
+int thread_create_driver_thread(struct thread_fd_open* fdo, ptr_t entry, int sysno, int num, ...);
+int thread_new_main(void);
 int mmu_create_linear(ptr_t start, ptr_t end);
 int thread_downtick(void);
 int thread_write(int fd, const void* buf, size_t count);
-int thread_wait_tid(int tid);
+int thread_wait_tid(int tid, bool sched, bool lockheld);
 int thread_get_tid(void);
 int thread_tick_sleep(int ticks);
 int thread_ms_sleep(ptr_t ms);
 int thread_sleep(ptr_t seconds);
-int thread_schedule_next(void);
+int thread_schedule_next(ptr_t);
 int thread_exit(ptr_t ret);
 int thread_ready(void);
-int thread_add_ready(struct thread* t, bool front);
+int thread_add_ready(struct thread* t, bool front, bool lockheld);
 int thread_read(int fd, void* buf, size_t count);
 int thread_wakeup(int tid, ptr_t res);
 int thread_yield(void);
 int thread_open(const char* name, int flags, int mode);
+int thread_munmap(void* addr);
+ptr_t thread_mmap(void* addr, size_t length, int prot, int flags, int fd);
 int thread_fcntl(int fd, ptr_t cmd, ptr_t arg);
 int thread_read(int fd, void* buf, size_t count);
 int thread_close(int fd);
@@ -630,8 +774,17 @@ int thread_getchar(int fd);
 int thread_putchar(int fd, int c);
 int thread_lseek(int fd, off_t offset, int whence);
 int thread_configure(ptr_t cmd, ptr_t arg);
+int process_configure(ptr_t cmd, ptr_t arg);
 int thread_fstat(int fd, struct stat* statbuf);
+int thread_fork(void);
 struct vfsopen* thread_find_fd(int fd);
+int thread_close_all(struct process* p);
+ptr_t thread_get_upgd(struct thread* t);
+bool thread_access_valid(int sysno);
+int thread_set_filter(sysfilter_t filter);
+sysfilter_t thread_get_filter(void);
+int thread_getuser(struct user_id* user);
+int thread_setuser(struct user_id* user);
 
 #define VFS_JOB_READ  1
 #define VFS_JOB_WRITE 2
@@ -647,11 +800,11 @@ struct readwritev {
 typedef int (*vjob_perform)(struct vfsopen*,void*,size_t);
 
 // -------------------------- elf-load.c --------------------- //
-struct loaded_exe* elf_load(void* addr);
+struct loaded_exe* elf_load(ptr_t*, void* addr);
 
 
 // -------------------------- power.c ------------------------- //
-void kern_poweroff(void);
+void kern_poweroff(bool force);
 
 // -------------------------- clibintegration.c --------------- //
 
@@ -709,9 +862,41 @@ union sigval {
 };
 */
 
+void memory_error(ptr_t addr, ptr_t ip, bool user, bool instr, bool write);
 
 struct iovec* copy_iovec_from_user(const struct iovec* iov, int iovcnt);
 struct readwritev* create_kernel_iov(const struct iovec* iov, int iovcnt, int job);
 bool iovec_validate_addrs(const struct iovec* iov, int iovcnt);
+
+#if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
+extern int last_driver_uid;
+#endif
+static inline uid_t driver_uid(void)	{
+#if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
+	return last_driver_uid++;
+#else
+	return USERID_ROOT;
+#endif
+}
+static inline gid_t driver_gid(void)	{
+	return USERID_ADM;
+}
+
+
+void call_inits(ptr_t start, ptr_t stop);
+
+struct process* cuse_get_process(struct fs_struct* fs);
+
+#if defined(CONFIG_KASAN)
+void kasan_init(void);
+void kasan_mark_valid(ptr_t addr, ptr_t len);
+//void bugprintf(const char* fmt, ...);
+void kasan_free(void* addr);
+void kasan_malloc(void* addr, size_t size);
+void kasan_print_allocated(void);
+void kasan_never_freed(void* addr);
+#endif
+
+int kern_write(char* buf, size_t count);
 
 #endif

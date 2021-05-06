@@ -5,9 +5,14 @@
  
 extern void _exit(int);
 extern int main ();
+//#define CONFIG_USER_THREAD_INFO 1
 
-#define CONFIG_CREATE_THREAD_EXIT 1
-#define CONFIG_CREATE_DEV_NULL    1
+#if CONFIG_USER_THREAD_INFO
+struct user_thread_info threadinfo = {0};
+#endif
+
+//#define CONFIG_CREATE_THREAD_EXIT 1
+//#define CONFIG_CREATE_DEV_NULL    1
 
 #if CONFIG_CREATE_THREAD_EXIT
 void _exception_exit(int);
@@ -23,7 +28,7 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	* If any gets an unexpected result, we exit
 	*/
 	int in, out, err;
-	in = open("/dev/console", 0, 0);
+	in = open("/dev/console", OPEN_FLAG_RW, 0);
 	if(in != 0)	_exit(in);
 
 	out = dup(in);
@@ -31,6 +36,10 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 
 	err = dup(out);
 	if(err != 2)	_exit(err);
+
+#if CONFIG_USER_THREAD_INFO
+	conf_process(PROC_STORE_THREAD_INFO, (ptr_t)(&threadinfo));
+#endif
 
 #if CONFIG_INIT_RANDOM_SEED
 	_seed_random();

@@ -13,12 +13,45 @@ nop
 .global set_stack
 .global arch_schedule
 .global new_thread_prep_args
+.global flush_tlb
+.global arch_intercept_func
+
+arch_intercept_func:
+	stp x29, x30, [sp, #-16]!
+	mov x29, sp
+
+	stp x6, x7, [sp, #-16]!
+	stp x4, x5, [sp, #-16]!
+	stp x2, x3, [sp, #-16]!
+	stp x0, x1, [sp, #-16]!
+
+	mov x0, sp
+
+	bl arch_intercepted
+
+	ldp x0, x1, [sp], #16
+	ldp x2, x3, [sp], #16
+	ldp x4, x5, [sp], #16
+	ldp x6, x7, [sp], #16
+
+	ldp x29, x30, [sp], #16
+	ret
+
+
+flush_tlb:
+	dsb ishst
+/*	tlbi alle1is */
+	tlbi vmalle1
+	dsb ish
+	isb
+	ret
 
 set_stack:
 	mov sp, x0
+	mov lr, #0
 	isb
-	mov lr, x1
 	br x1
+
 
 
 #if CONFIG_AARCH64_PAN
@@ -46,6 +79,14 @@ pan_enable:
 #endif
 
 arch_schedule:
+	/* Avoid switching if they are the same */
+	mrs x2, TTBR0_EL1
+	cmp x1, x2
+	b.eq .noswitch
+	msr TTBR0_EL1, x1
+	bl flush_tlb
+.noswitch:
+/*	TLBI ALLE1 */
 	mov sp, x0
 	isb
 	mov lr, 0x00
@@ -90,6 +131,10 @@ write_\reg:
 	ret
 .endm
 
+.extern panic
+copyerror: .ascii "TTBR0 was not set to valid value\n"
+file: .ascii "aarch64.S"
+
 /*
 * Helper-macro to create wrapper for accessing user-memory using through the
 * usual C string function.
@@ -100,6 +145,16 @@ write_\reg:
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 
+#if CONFIG_AARCH64_DEBUG_TTBR0
+	mrs x19, TTBR0_EL1
+	cbnz x19, .pass_\func\()_\dir\()
+	adr x0, copyerror
+	adr x1, file
+	mov x2, #0
+	bl panic
+
+.pass_\func\()_\dir\():
+#endif
 
 	mov x19, x0
 	mov x20, x1

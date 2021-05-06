@@ -2,9 +2,22 @@
 
 #define PAGE_SIZE ARM64_PAGE_SIZE
 
-void pmm_add_ref(size_t block)	{
+
+static int _pmm_add_ref(size_t block)	{
 	struct pmm* pmm = cpu_get_pmm();
-	pmm->bitmap[block]++;
+	if(pmm->bitmap[block] != 0xff)	{
+		pmm->bitmap[block]++;
+		return pmm->bitmap[block];
+	}
+	return -1;
+}
+static int _pmm_dec_ref(size_t block)	{
+	struct pmm* pmm = cpu_get_pmm();
+	if(pmm->bitmap[block] > 0)	{
+		pmm->bitmap[block]--;
+		return pmm->bitmap[block];
+	}
+	return -1;
 }
 
 int pmm_init()	{
@@ -25,7 +38,7 @@ int pmm_init()	{
 	memset(pmm->bitmap, 0x00, bm_blocks * PAGE_SIZE);
 	
 	for(i = (blocks - bm_blocks); i < blocks; i++)	{
-		pmm_add_ref(i);
+		_pmm_add_ref(i);
 	}
 	pmm->pages = blocks;
 
@@ -34,15 +47,35 @@ int pmm_init()	{
 	logd("Stored bitmap @ %p\n", pmm->bitmap);
 	return 0;	
 }
+int pmm_ref(ptr_t page)	{
+	int res = -1;
+	struct pmm* pmm = cpu_get_pmm();
+	ptr_t idx = (page - pmm->start) / PAGE_SIZE;
+	res = pmm->bitmap[idx];
+	return res;
 
-void pmm_free(ptr_t page)	{
+}
+int pmm_add_ref(ptr_t page)	{
+	int res = -1;
+	struct pmm* pmm = cpu_get_pmm();
+	ptr_t idx = (page - pmm->start) / PAGE_SIZE;
+
+	mutex_acquire(&pmm->lock);
+	res = _pmm_add_ref(idx);
+	mutex_release(&pmm->lock);
+	return res;
+}
+int pmm_free(ptr_t page)	{
+	int res = -1;
 	logd("Freeing page 0x%lx\n", page);
 	struct pmm* pmm = cpu_get_pmm();
 	ptr_t idx = (page - pmm->start) / PAGE_SIZE;
 
 	mutex_acquire(&pmm->lock);
-	pmm->bitmap[idx] = 0;
+	res = _pmm_dec_ref(idx);
+//	pmm->bitmap[idx] = 0;
 	mutex_release(&pmm->lock);
+	return res;
 }
 
 ptr_t pmm_alloc(int pages)	{
@@ -56,7 +89,8 @@ ptr_t pmm_alloc(int pages)	{
 
 		if(count == pages)	{
 			for(j = (1+i-pages); j < (i+pages); j++)	{
-				pmm->bitmap[j] = 1;
+				_pmm_add_ref(j);
+//				pmm->bitmap[j] = 1;
 			}
 			stat_add_taken_pages(pages);
 			ret = (pmm->start + ((1+i-pages) * PAGE_SIZE));
@@ -67,6 +101,7 @@ error:
 	PANIC("Unable to find physical page, must do paging");
 done:
 	mutex_release(&pmm->lock);
+//	logd("pmm alloc page: %lx\n", ret);
 	return ret;
 }
 
@@ -86,7 +121,7 @@ int pmm_mark_mem(ptr_t start, ptr_t end)	{
 	stat_add_taken_pages( (rend - rstart) / PAGE_SIZE );
 
 	for(i = (rstart / PAGE_SIZE); i < (rend / PAGE_SIZE); i++)	{
-		pmm_add_ref(i);
+		_pmm_add_ref(i);
 	}
 	mutex_release(&pmm->lock);
 	return 0;

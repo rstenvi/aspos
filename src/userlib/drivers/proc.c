@@ -35,26 +35,39 @@ int proc_open(struct vfsopen* o, const char* fname, int mode, int flags) {
 	SET_VFS_DATA(o, fs);
 	return o->fd;
 err1:
-	free(fs);
+	kfree(fs);
 	return ret;
 }
 int proc_read(struct vfsopen* o, void* buf, size_t len)	{
-	GET_VFS_DATA(o,struct fs_struct,fs);
+	GET_VFS_DATA(o, struct fs_struct, fs);
 	if(PTR_IS_ERR(fs))  return -USER_FAULT;
 
 	if(fs->read)	return fs->read(o, buf, len);
 	return -USER_FAULT;
+}
+int proc_close(struct vfsopen* o)	{
+	int res = OK;
+	GET_VFS_DATA(o, struct fs_struct, fs);
+	if(PTR_IS_ERR(fs))  return -USER_FAULT;
+
+	if(fs->close)	res = fs->close(o);
+
+	SET_VFS_DATA(o, NULL);
+	kfree(fs);
+	return res;
 }
 
 static struct fs_struct proc_fs = {
 	.name = "",
 	.open = proc_open,
 	.read = proc_read,
+	.close = proc_close,
+	.perm = ACL_PERM(ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE, ACL_READ),
 };
 
 int init_proc(bool detach)	{
 	int fd;
-	fd = open("/dev/cuse", 0, 0);
+	fd = open("/dev/cuse", OPEN_FLAG_READ|OPEN_FLAG_CTRL, 0);
 	if(fd < 0)	{
 		printf("Unable to open /dev/cuse\n");
 		return fd;

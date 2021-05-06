@@ -53,7 +53,7 @@ static int timer_reconf(void)	{
 	return 0;
 }
 
-int timer_irq_cb(void)	{
+int timer_irq_cb(int irqno)	{
 	timer_reconf();
 	thread_downtick();
 	return 0;

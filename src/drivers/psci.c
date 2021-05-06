@@ -18,7 +18,7 @@ struct psci_struct	{
 	uint16_t minor, major;
 };
 
-struct psci_struct psci;
+static struct psci_struct psci;
 extern struct os_data osdata;
 
 

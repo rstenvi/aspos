@@ -23,6 +23,7 @@ SECTIONS {
 	}
 	
 	IMAGE_INIT_END = .;
+	start_vectortables = .;
 
 	. += ARM64_VA_KERNEL_FIRST_ADDR;
 
@@ -53,6 +54,11 @@ SECTIONS {
 		EARLYHW_STOP = .;
 
 		. = ALIGN(ALIGN_SAME_SECTION);
+		EXITFUNC_START = .;
+		*(.kernel.data.exitfunc)
+		EXITFUNC_STOP = .;
+
+		. = ALIGN(ALIGN_SAME_SECTION);
 		CPUCORE_START = .;
 		*(.kernel.data.cpufunc)
 		CPUCORE_STOP = .;
@@ -66,7 +72,7 @@ SECTIONS {
 
 		KERNEL_DATA_STOP = .;
 	}
-	.bss : AT (ADDR (.bss) - ARM64_VA_KERNEL_FIRST_ADDR) {
+	.bss : AT (ADDR (.bss) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_BSS_START = .;
 		*(.bss)
 		KERNEL_BSS_STOP = .;

@@ -2,13 +2,22 @@
 * Virt I/O driver
 *
 * Documentation: http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html
+*
+*/
+
+
+/*
+Alternate implementation of ringbuffer which keeps track of free buffers
+- Divide ringbuffer into blocks of minimum allocate size
+- Use bitmap to keep track of blocks
+- When adding buffer, search for necessary blocks
 */
 
 #include "kernel.h"
 
 #include "virtio.h"
 
-struct virtio_struct virtio;
+static struct virtio_struct virtio;
 
 static inline void device_reset(ptr_t base)	{ DMAW32(base + VIRTIO_OFF_STATUS, 0); }
 
@@ -29,8 +38,9 @@ static int _init_virtio_dev(ptr_t base, ptr_t size, struct virtio_dev_struct* vi
 
 	// Get device type and check for sanity
 	DMAR32(base + VIRTIO_OFF_DEVICE_ID, res);
-	logi("VIR I/O device: %i | version: %i\n", res, virt->version);
-	if(res == DEVTYPE_RESERVED || res >= DEVTYPE_MAX)	return -HW_ERROR;
+	logd("VIR I/O device: %i | version: %i\n", res, virt->version);
+	if(res == DEVTYPE_INVALID1 || res == DEVTYPE_INVALID2 || res == DEVTYPE_RESERVED || res >= DEVTYPE_MAX)
+		return -HW_ERROR;
 	virt->devtype = res;
 
 	virt->initialized = false;
@@ -59,7 +69,7 @@ int virtio_write_v1(struct virtio_dev_struct* dev, void* buf, size_t len)	{
 
 static int _virtio_inc_array(void)	{
 	virtio.max_devices += 1;
-	virtio.devices = (struct virtio_dev_struct*)realloc(virtio.devices, sizeof(struct virtio_dev_struct) * virtio.max_devices );
+	virtio.devices = (struct virtio_dev_struct*)krealloc(virtio.devices, sizeof(struct virtio_dev_struct) * virtio.max_devices );
 	return (virtio.devices != NULL) ? OK : -MEMALLOC;
 }
 
@@ -138,7 +148,7 @@ int virtq_add_queue(struct virtio_dev_struct* dev, int queue)	{
 
 int virtq_create_alloc(struct virtio_dev_struct* dev, uint32_t qsz, int pages, int queues)	{
 	int i;
-	dev->virtq = (struct virtq*)malloc(
+	dev->virtq = (struct virtq*)kmalloc(
 		sizeof(struct virtq) + (queues * sizeof(struct virtq_queue))
 	);
 
@@ -154,13 +164,39 @@ int virtq_create_alloc(struct virtio_dev_struct* dev, uint32_t qsz, int pages, i
 	dev->virtq->qsz = qsz;
 	dev->virtq->numqueues = queues;
 //	dev->virtq.desc = (struct virtq_desc*)vaddr;
+	dev->allocated = true;
 	return OK;
 }
 
-ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail)	{
+int virtq_destroy_alloc(struct virtio_dev_struct* dev)	{
+	if(!(dev->allocated))	return OK;
+	int pages = dev->virtq->ringm / PAGE_SIZE, i;
+	ptr_t p = (ptr_t)dev->virtq->ringbuffer;
+	if(p)	{
+		for(i = 0; i < pages; i++)	{
+			pmm_free(p + (i * PAGE_SIZE));
+		}
+	}
+	kfree(dev->virtq);
+	return OK;
+}
+
+ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail, bool chain)	{
 	struct virtq* vq = dev->virtq;
 	ptr_t vaddr = (ptr_t)vq->queues[queue].desc;
 	int idx = vq->queues[queue].idx;
+	int pidx = (idx) ? ((idx - 1) % vq->qsz) : -1;
+	int _idx;
+
+	// Ensure that ringbuffer is reasonably well aligned
+	ALIGN_UP_POW2(bytes, 32);
+
+	if(idx >= vq->qsz)	{
+		logi("Going over qsz\n");
+	}
+	_idx = idx % vq->qsz;
+
+	//idx %= vq->qsz;
 
 	ptr_t pdata = 0;
 
@@ -171,7 +207,11 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	// Check if we have enough space remaining in ringbuffer
 	// if not, we start at zero again
 	// We assume here that the driver has parsed that data already
-	if( bytes > (vq->ringm - vq->ringc) )	vq->ringc = 0;
+	if( bytes > (vq->ringm - vq->ringc) )	{
+		logw("Beginning from start of ringbuffer and overwriting previous data\n");
+		logi("TODO: Caller should copy any address it has stored\n");
+		vq->ringc = 0;
+	}
 
 	pdata = vq->ringbuffer + vq->ringc;
 	vq->ringc += bytes;
@@ -180,13 +220,13 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	struct virtq_avail* avail;
 	//struct virtq_used* used;
 
-	if(!updateavail)	{
-		desc = (struct virtq_desc*)(vaddr + ((idx-1) * sizeof(struct virtq_desc)));
+	if(chain && idx > 0)	{
+		desc = (struct virtq_desc*)(vaddr + (pidx * sizeof(struct virtq_desc)));
 		desc->next = idx;
 		desc->flags |= VIRTQ_DESC_F_NEXT;
 	}
 
-	desc = (struct virtq_desc*)(vaddr + (idx * sizeof(struct virtq_desc)));
+	desc = (struct virtq_desc*)(vaddr + (_idx * sizeof(struct virtq_desc)));
 	desc->paddr = pdata;
 	desc->len = bytes;
 	desc->flags = flags;
@@ -195,9 +235,10 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	if(updateavail)	{
 		avail = (struct virtq_avail*)(vaddr + (vq->qsz * sizeof(struct virtq_desc)));
 		avail->flags = 0;
+
+		/** idx always increments, and wraps naturally at 65536 */
 		avail->idx = idx + 1;
-		//avail->idx = idx;
-		avail->ring[idx] = idx;
+		avail->ring[_idx] = _idx;
 	}
 
 	vq->queues[queue].idx += 1;
@@ -324,5 +365,9 @@ int virtio_ack_intr(struct virtio_dev_struct* dev)	{
 	}
 	return res;
 }
-
 driver_init(init_virtio);
+int virtio_exit(void)  {
+    kfree(virtio.devices);
+	return OK;
+}
+poweroff_exit(virtio_exit);

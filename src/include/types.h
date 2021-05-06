@@ -13,8 +13,13 @@
 typedef uint16_t tid_t;
 typedef uint64_t ptr_t;
 
+typedef uint16_t uid_t;
+typedef uint16_t gid_t;
 
 typedef volatile uint8_t mutex_t;
 
+typedef uint64_t sysfilter_t;
+
+#define __force_inline __attribute__((always_inline))
 
 #endif

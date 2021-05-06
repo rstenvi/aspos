@@ -5,7 +5,7 @@
 #include "kernel.h"
 #include "vfs.h"
 #include "slab.h"
-
+#include "syscalls.h"
 
 static int vfs_find_name(struct fs_component* d, const char* name)	{
 	int i, best_match = -1, len = strlen(name), l;
@@ -101,15 +101,14 @@ int generic_open(struct fs_component* d, const char* name, int flags, int mode)	
 */
 
 // Static check in size of vfsopen
-SLAB_CHK_SIZE(struct vfsopen, 24);
+//SLAB_CHK_SIZE(struct vfsopen, 24);
 
 #define VFS_GET_FS(o) (ADDR_USER(o)) ? get_user(o->fs, ptr_t) : o->fs
 
 struct vfsopen* vfs_alloc_open(int tid, int fd, struct fs_struct* fs)	{
 	struct vfsopen entry;
-	struct vfsopen* n;
-	n = slab_alloc_32(fs->user);
-	if(PTR_IS_ERR(n))	return NULL;
+	TMALLOC(n, struct vfsopen);
+	if(PTR_IS_ERR(n))	return n;
 
 	entry.tid = tid;
 	entry.fd = fd;
@@ -117,18 +116,22 @@ struct vfsopen* vfs_alloc_open(int tid, int fd, struct fs_struct* fs)	{
 	entry.data = NULL;
 	entry.offset = 0;
 
-	if(fs->user)	{
-		memcpy_to_user(n, &entry, sizeof(struct vfsopen));
-	}
-	else	{
-		memcpy(n, &entry, sizeof(struct vfsopen));
-	}
+	// Thread manager should fill this in, to avoid a default-root user, we
+	// overwrite the entire struct with 1's
+	memset(&(entry.caller), 0xff, sizeof(struct user_id));
+
+	memcpy(n, &entry, sizeof(struct vfsopen));
 	return n;
 }
+/*
 void vfs_free_open(struct thread_fd_open* fdo)	{
-	slab_free_32(fdo->open, fdo->fs->user);
-}
-struct fs_struct* vfs_walk_path(struct fs_component* root, char** _name)	{
+	if(!ADDR_USER(fdo->open))	{
+		free(fdo->open);
+	}
+//	slab_free_32(fdo->open, fdo->fs->user);
+}*/
+
+struct fs_component* _vfs_walk_path(struct fs_component* root, char** _name, int* plus)	{
 	char* name = *_name, * end;
 	struct fs_component* curr, *_root = root;
 	int clen, i, len;
@@ -139,8 +142,12 @@ struct fs_struct* vfs_walk_path(struct fs_component* root, char** _name)	{
 			logw("Unable to find path for %s\n", name);
 			return NULL;
 		}
+		*plus += clen;
 		name = name + clen;
-		if(*name == '/')	name++;
+		if(*name == '/')	{
+			name++;
+			*plus += 1;
+		}
 		curr = NULL;
 		for(i = 0; i < root->numchilds; i++)	{
 			curr = root->childs[i];
@@ -153,6 +160,16 @@ struct fs_struct* vfs_walk_path(struct fs_component* root, char** _name)	{
 		}
 		
 	} while(root != _root);
+	return root;
+}
+
+
+struct fs_struct* vfs_walk_path(struct fs_component* root, char** _name)	{
+	int i, plus = 0;
+	char* name = *_name, * end;
+	root = _vfs_walk_path(root, &name, &plus);
+	name += plus;
+	*_name = name;
 	for(i = 0; i < root->currdevs; i++)	{
 		// Subfs requires exact match
 		if(strcmp(root->subfs[i]->name, name) == 0)	{
@@ -183,16 +200,20 @@ struct fs_struct* vfs_find_open(char** name)	{
 	*/
 	return fs;
 }
-
-static int _vfs_generic_user(struct vfsopen* o, ptr_t entry, int num, ...)	{
+/*
+static int _vfs_generic_user(struct thread_fd_open* fdo, ptr_t entry, int num, ...)	{
+	struct vfsopen* o = fdo->open;
+	struct fs_struct* fs = fdo->fs;
+	struct process* p = cuse_get_process(fs);
 	struct thread* t;
 	struct threads* allt = cpu_get_threads();
 	va_list ap;
 	int i;
 	ptr_t arg;
 
-	t = new_thread_kernel(entry, allt->exc_exit, true, false);
+	t = new_thread_kernel(current_proc(), entry, allt->exc_exit, true, false);
 	if(PTR_IS_ERR(t))	return PTR_TO_ERRNO(t);
+	set_thread_owner(t);
 
 	// Add the necessary arguments
 	arch_thread_set_arg((void*)(t->stackptr), (ptr_t)o, 0);
@@ -206,24 +227,25 @@ static int _vfs_generic_user(struct vfsopen* o, ptr_t entry, int num, ...)	{
 	// Add to front of ready-list
 	thread_add_ready(t, true);
 
-	// This will not return
-	thread_wait_tid(t->id);
+	thread_wait_tid(t->id, false);
 
 	// The current thread must block until new thread has finished
-	return OK;
+	return -BLOCK_THREAD_ID;
 }
+*/
 
 static int _vfs_open_user(struct thread_fd_open* fdo, const char* name, int flags, int mode)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
 
-	return _vfs_generic_user(o, (ptr_t)fs->open, 3, name, flags, mode);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->open, SYS_OPEN, 3, name, flags, mode);
 }
 
 int vfs_open(struct thread_fd_open* fdo, const char* name, int flags, int mode)	{
 	int res = -USER_FAULT;
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
+	ASSERT_USER(name);
 
 	if(fs->open != NULL)	{
 		return ADDR_USER(fs->open) ? _vfs_open_user(fdo, name, flags, mode) : fs->open(fdo->open, name, flags, mode);
@@ -234,12 +256,13 @@ int vfs_open(struct thread_fd_open* fdo, const char* name, int flags, int mode)	
 static int _vfs_fstat_user(struct thread_fd_open* fdo, struct stat* statbuf)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->fstat, 1, statbuf);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->fstat, SYS_FSTAT, 1, statbuf);
 }
 int vfs_fstat(struct thread_fd_open* fdo, struct stat* statbuf)	{
 	int res = -USER_FAULT;
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
+	ASSERT_USER(statbuf);
 
 	if(fs->fstat != NULL)	{
 		return ADDR_USER(fs->fstat) ? _vfs_fstat_user(fdo, statbuf) : fs->fstat(fdo->open, statbuf);
@@ -276,7 +299,7 @@ int vfs_mmap(struct vfsopen* o, void* addr, size_t len)	{
 static int _vfs_fcntl_user(struct thread_fd_open* fdo, ptr_t cmd, ptr_t arg)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->fcntl, 2, cmd, arg);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->fcntl, SYS_FCNTL, 2, cmd, arg);
 }
 int vfs_fcntl(struct thread_fd_open* fdo, ptr_t cmd, ptr_t arg)	{
 	int res = -USER_FAULT;
@@ -292,14 +315,15 @@ static int _vfs_read_user(struct thread_fd_open* fdo, const void* buf, size_t ma
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
 
-	return _vfs_generic_user(o, (ptr_t)fs->read, 2, buf, max);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->read, SYS_READ, 2, buf, max);
 }
 int vfs_read(struct thread_fd_open* fdo, void* buf, size_t max)	{
 	int res = -USER_FAULT;
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
+	ASSERT_USER_MEM(buf, max);
 
-	if(fs->open != NULL)	{
+	if(fs->read != NULL)	{
 		res = ADDR_USER(fs->read) ? _vfs_read_user(fdo, buf, max) : fs->read(o, buf, max);
 	}
 
@@ -308,14 +332,31 @@ int vfs_read(struct thread_fd_open* fdo, void* buf, size_t max)	{
 static int _vfs_write_user(struct thread_fd_open* fdo, const void* buf, size_t max)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->write, 2, buf, max);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->write, SYS_WRITE, 2, buf, max);
 }
 int vfs_write(struct thread_fd_open* fdo, const void* buf, size_t max)	{
 	int res = -USER_FAULT;
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
+	ASSERT_USER_MEM(buf, max);
 	if(fs->write != NULL)	{
 		res = ADDR_USER(fs->write) ? _vfs_write_user(fdo, buf, max) : fs->write(o, buf, max);
+	}
+	return res;
+}
+static int _vfs_mmap_user(struct thread_fd_open* fdo, void* addr, size_t length)	{
+	struct vfsopen* o = fdo->open;
+	struct fs_struct* fs = fdo->fs;
+	PANIC("Not implemented yet\n");
+//	return thread_create_driver_thread(fdo, (ptr_t)fs->write, SYS_MMAP, 2, buf, max);
+}
+int vfs_mmap(struct thread_fd_open* fdo, void* addr, size_t length)	{
+	int res = -USER_FAULT;
+	struct vfsopen* o = fdo->open;
+	struct fs_struct* fs = fdo->fs;
+	ASSERT_USER_MEM(addr, length);
+	if(fs->mmap != NULL)	{
+		res = ADDR_USER(fs->mmap) ? _vfs_mmap_user(fdo, addr, length) : fs->mmap(o, addr, length);
 	}
 	return res;
 }
@@ -340,7 +381,7 @@ off_t generic_lseek(struct vfsopen* o, off_t offset, int whence)	{
 static int _vfs_lseek_user(struct thread_fd_open* fdo, off_t offset, int whence)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->lseek, 2, offset, whence);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->lseek, SYS_LSEEK, 2, offset, whence);
 }
 off_t vfs_lseek(struct thread_fd_open* fdo, off_t offset, int whence)	{
 	int res = -USER_FAULT;
@@ -359,7 +400,7 @@ off_t vfs_lseek(struct thread_fd_open* fdo, off_t offset, int whence)	{
 static int _vfs_close_user(struct thread_fd_open* fdo)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->close, 0);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->close, SYS_CLOSE, 0);
 }
 int vfs_close(struct thread_fd_open* fdo)	{
 	int res = -USER_FAULT;
@@ -374,7 +415,7 @@ int vfs_close(struct thread_fd_open* fdo)	{
 static int _vfs_getchar_user(struct thread_fd_open* fdo)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->getc, 0);
+	return thread_create_driver_thread(fdo, (ptr_t)fs->getc, SYS_GET_CHAR, 0);
 }
 int vfs_getchar(struct thread_fd_open* fdo)	{
 	int res = -USER_FAULT;
@@ -387,9 +428,7 @@ int vfs_getchar(struct thread_fd_open* fdo)	{
 	return res;
 }
 static int _vfs_putchar_user(struct thread_fd_open* fdo, int c)	{
-	struct vfsopen* o = fdo->open;
-	struct fs_struct* fs = fdo->fs;
-	return _vfs_generic_user(o, (ptr_t)fs->putc, 1, c);
+	return thread_create_driver_thread(fdo, (ptr_t)fdo->fs->putc, SYS_PUT_CHAR, 1, c);
 }
 int vfs_putchar(struct thread_fd_open* fdo, int c)	{
 	int res = -USER_FAULT;
@@ -405,7 +444,7 @@ int vfs_putchar(struct thread_fd_open* fdo, int c)	{
 int vfs_register_child(struct fs_component* parent, struct fs_component* child)	{
 	if(parent->numchilds == parent->maxchilds)	{
 		parent->maxchilds += 4;
-		parent->childs = (struct fs_component**)realloc(parent->childs, (sizeof(void*) * parent->maxchilds));
+		parent->childs = (struct fs_component**)krealloc(parent->childs, (sizeof(void*) * parent->maxchilds));
 		ASSERT_FALSE(PTR_IS_ERR(parent->childs), "Memory error");
 	}
 
@@ -417,22 +456,25 @@ int _vfs_create_subfs(struct fs_component* fs, struct fs_struct* cb, int count)	
 	int res = OK;
 	fs->maxdevs = count;
 	fs->currdevs = 1;
-	fs->subfs = (struct fs_struct**)malloc(sizeof(struct fs_struct*) * fs->maxdevs);
+	fs->subfs = (struct fs_struct**)kmalloc(sizeof(struct fs_struct*) * fs->maxdevs);
 	if(PTR_IS_ERR(fs->subfs))	{
 		res = -USER_FAULT;
 		goto err1;
 	}
+	fs->subfs[0] = cb;
+	/*
 	fs->subfs[0] = (struct fs_struct*)malloc(sizeof(struct fs_struct));
 	if(PTR_IS_ERR(fs->subfs[0]))	{
 		res = -USER_FAULT;
 		goto err2;
 	}
+	*/
 
-	memcpy(fs->subfs[0], cb, sizeof(struct fs_struct));
+//	memcpy(fs->subfs[0], cb, sizeof(struct fs_struct));
 err1:
 	return res;
 err2:
-	free(fs->subfs);
+	kfree(fs->subfs);
 	return res;
 }
 
@@ -455,7 +497,33 @@ int vfs_register_mount(const char* n, struct fs_struct* cb)	{
 		root->name[1] = 0x00;
 	}
 	else	{
-		PANIC("Don't know how to register mount");
+		char** name = (char**)(&n), *_n = n;
+		int plus = 0;
+		parent = _vfs_walk_path(root, name, &plus);
+		ASSERT_FALSE(PTR_IS_ERR(parent), "Unable to find mount point")
+		_n += plus;
+//		parent = vfs_find_child(root, name);
+
+		TZALLOC(fs, struct fs_component);
+		if(PTR_IS_ERR(fs))	return -MEMALLOC;
+
+		res = _vfs_copy_name(fs, _n);
+		if(res != OK)		goto err1;
+
+		// Register this as the default fs to use
+		fs->rootfs = cb;
+/*
+		res = _vfs_create_subfs(fs, cb, 1);
+		if(res)	{
+			free(fs);
+			return res;
+		}
+*/
+
+		res = vfs_register_child(parent, fs);
+		return res;
+err1:
+		kfree(fs);
 	}
 	return res;
 
@@ -502,7 +570,21 @@ int init_vfs(void)	{
 
 driver_init(init_vfs);
 
-struct fs_component vfs_dev;
+static void _delete_fs_comp(struct fs_component* fs)	{
+	int i;
+	for(i = 0; i < fs->numchilds; i++)	{
+		_delete_fs_comp(fs->childs[i]);
+	}
+	kfree(fs->childs);
+	kfree(fs->subfs);
+}
+int vfs_exit(void)	{
+	struct fs_component* d = &(osdata.root);
+	_delete_fs_comp(d);
+}
+poweroff_exit(vfs_exit);
+
+static struct fs_component vfs_dev;
 
 int init_vfs_dev(void)	{
 	int res;
@@ -522,9 +604,11 @@ driver_init(init_vfs_dev);
 
 int device_register(struct fs_struct* dev)	{
 	struct fs_component* d = &(vfs_dev);
+	dev->owner.uid = driver_uid();
+	dev->owner.gid = driver_gid();
 	if(d->currdevs >= d->maxdevs)	{
 		d->maxdevs += 10;
-		d->subfs = (struct fs_struct**)realloc(d->subfs, sizeof(void*) * d->maxdevs);
+		d->subfs = (struct fs_struct**)krealloc(d->subfs, sizeof(void*) * d->maxdevs);
 		ASSERT_TRUE(d->subfs != NULL, "Unable to allocate space for devices");
 	}
 	d->subfs[d->currdevs++] = dev;
@@ -559,6 +643,13 @@ bool vfs_functions_valid(struct fs_struct* fs, bool user)	{
 	if(fs->putc != NULL && (user != ADDR_USER(fs->putc)))	return false;
 
 	return true;
+}
+
+int vfs_fstat_fill_common(struct fs_struct* fs, struct stat* sb, enum file_type ft)	{
+	sb->st_mode = (1 << (((uint32_t)ft) + 16)) | (uint32_t)fs->perm;
+	sb->st_uid = fs->owner.uid;
+	sb->st_gid = fs->owner.gid;
+	return OK;
 }
 
 /*

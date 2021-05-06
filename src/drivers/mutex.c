@@ -25,11 +25,12 @@ static struct fs_struct mutexuser = {
 	.name = "mutex",
 	.open = mutex_open,
 	.putc = mutex_putchar,
+	.perm = ACL_PERM(ACL_WRITE, ACL_WRITE, ACL_WRITE),
 };
 
 int mutex_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	int ret = OK;
-	struct mutex_user* u = (struct mutex_user*)malloc( sizeof(struct mutex_user) );
+	struct mutex_user* u = (struct mutex_user*)kmalloc( sizeof(struct mutex_user) );
 	if(PTR_IS_ERR(u))	{
 		ret = -MEMALLOC;
 		goto fail0;
@@ -47,11 +48,11 @@ int mutex_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	}
 
 	n->data = (void*)u;
-	return ret;
+	return n->fd;
 
 
 fail1:
-	free(u);
+	kfree(u);
 fail0:
 	return ret;
 }
@@ -62,7 +63,7 @@ fail0:
 static int mutex_add_waiting(struct mutex_user* u, int tid)	{
 	if(u->numwaiting == u->maxwaiting)	{
 		u->maxwaiting += 4;
-		u->waiting = (int*)realloc(u->waiting, u->maxwaiting * sizeof(int));
+		u->waiting = (int*)krealloc(u->waiting, u->maxwaiting * sizeof(int));
 		if(PTR_IS_ERR(u->waiting))	return -MEMALLOC;
 	}
 	u->waiting[u->numwaiting++] = tid;

@@ -98,11 +98,11 @@ struct virtio_blk_req {
 
 
 
-struct virtio_dev_struct blkdev;
+static struct virtio_dev_struct blkdev;
 
 
 struct blk_job	{
-	int tid;
+	struct thread* thread;
 	void* uaddr;
 	size_t left, total;
 	enum JOB_TYPE type;
@@ -114,7 +114,7 @@ struct blk_device {
 	struct blk_job job;
 };
 
-struct blk_device blkdevice;
+static struct blk_device blkdevice;
 
 static inline struct blk_job* _get_job(void) { return &(blkdevice.job); }
 
@@ -123,7 +123,7 @@ static int _create_job(void* addr, size_t sz, enum JOB_TYPE type)	{
 	struct blk_job* j = &(blkdevice.job);
 	ASSERT_TRUE(j->type == JOB_NONE, "error");
 
-	j->tid = current_tid();
+	j->thread = current_thread();
 	j->left = j->total = sz;
 	j->uaddr = addr;
 	j->type = type;
@@ -141,8 +141,8 @@ int blk_read(struct vfsopen* o, void* buf, size_t sz)	{
 	mutex_acquire(&blkdevice.lock);
 	_create_job(buf, sz, JOB_READ);
 
-	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true);
-	devresult = virtq_add_buffer(dev, 513, VIRTQ_DESC_F_WRITE, 0, false);
+	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true, false);
+	devresult = virtq_add_buffer(dev, 513, VIRTQ_DESC_F_WRITE, 0, false, true);
 
 	struct blk_job* j = &(blkdevice.job);
 	j->devresult = (void*)(devresult + cpu_linear_offset());
@@ -170,9 +170,9 @@ int blk_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	_create_job((void*)buf, sz, JOB_WRITE);
 
 	rsz = MIN(sz, BLK_UNIT_SIZE);
-	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true);
-	virtq_add_buffer(dev, 512, 0, 0, false);
-	devresult = virtq_add_buffer(dev, 1, VIRTQ_DESC_F_WRITE, 0, false);
+	preq = virtq_add_buffer(dev, 4+4+8, 0, 0, true, false);
+	virtq_add_buffer(dev, 512, 0, 0, false, true);
+	devresult = virtq_add_buffer(dev, 1, VIRTQ_DESC_F_WRITE, 0, false, true);
 
 	struct blk_job* j = &(blkdevice.job);
 	j->devresult = (void*)(devresult + cpu_linear_offset());
@@ -191,7 +191,7 @@ int blk_write(struct vfsopen* o, const void* buf, size_t sz)	{
 
 }
 
-int virtio_blk_irq_cb(void)	{
+int virtio_blk_irq_cb(int irqno)	{
 	logd("BLK IRQ\n");
 	struct virtio_dev_struct* dev = &blkdev;
 	int res;
@@ -205,6 +205,7 @@ int virtio_blk_irq_cb(void)	{
 	res = virtio_intr_status(dev);
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		struct blk_job* j = _get_job();
+		arch_set_upgd(thread_get_upgd(j->thread));
 		// We always read/write in these unit sizes
 
 		uint8_t* dres = (uint8_t*)j->devresult;
@@ -223,7 +224,7 @@ int virtio_blk_irq_cb(void)	{
 		// Unlock the device for new operations
 		mutex_release(&blkdevice.lock);
 		if(j->type != JOB_NONE && (j->left == 0 || retcode != 0))	{
-			int tid = j->tid;
+			int tid = j->thread->id;
 			j->type = JOB_NONE;
 			thread_wakeup(tid, (retcode == 0) ? j->total : -1);
 		}
@@ -232,13 +233,7 @@ int virtio_blk_irq_cb(void)	{
 	return 0;
 }
 
-int blk_fstat(struct vfsopen* o, struct stat* statbuf)	{
-	struct stat s = {0};
-	s.st_blksize = BLK_UNIT_SIZE;
-
-	if(memcpy_to_user(statbuf, &s, sizeof(struct stat)))	return -USER_FAULT;
-	return OK;
-}
+int blk_fstat(struct vfsopen* o, struct stat* statbuf);
 
 static struct fs_struct virtioblkdev = {
 	.name = "block",
@@ -246,7 +241,18 @@ static struct fs_struct virtioblkdev = {
 	.read = blk_read,
 	.write = blk_write,
 	.fstat = blk_fstat,
+	.perm = DRIVER_DEFAULT_PERM,
 };
+
+int blk_fstat(struct vfsopen* o, struct stat* statbuf)	{
+	struct stat s = {0};
+	s.st_blksize = BLK_UNIT_SIZE;
+
+	vfs_fstat_fill_common(&virtioblkdev, &s, FT_DEV_BLOCK);
+
+	if(memcpy_to_user(statbuf, &s, sizeof(struct stat)))	return -USER_FAULT;
+	return OK;
+}
 
 
 int virtio_blk_init(struct virtio_dev_struct* dev)	{
@@ -303,5 +309,9 @@ int virtio_blk_register(void)	{
 	virtio_register_cb(BLOCK_DEVICE, virtio_blk_init);
 	return OK;
 }
-
 early_hw_init(virtio_blk_register);
+
+int virtio_blk_exit(void)    {
+    virtq_destroy_alloc(&blkdev);
+}
+poweroff_exit(virtio_blk_exit);

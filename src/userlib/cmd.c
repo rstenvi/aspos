@@ -13,7 +13,7 @@ int cmd_cat(char* arg, int fdo)	{
 	char buf[BUFFER_SIZE];
 	int num, total = 0, fd;
 
-	fd = open(arg, 0, 0);
+	fd = open(arg, OPEN_FLAG_READ, 0);
 	if(fd < 0)	return fd;
 
 	do	{
@@ -25,4 +25,11 @@ int cmd_cat(char* arg, int fdo)	{
 	} while(num >= BUFFER_SIZE);
 	return total;
 }
-
+int cmd_echo(int argc, char* argv[])	{
+	int i;
+	for(i = 0; i < argc; i++)	{
+		write(STDOUT, argv[i], strlen(argv[i]));
+		if(i < argc-1)	write(STDOUT, " ", 1);
+	}
+	write(STDOUT, "\n", 1);
+}

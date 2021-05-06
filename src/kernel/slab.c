@@ -73,7 +73,7 @@ void slab_free(struct slab* slab, void* addr)	{
 	struct slab_entry* e;
 	e = _find_slab_entry(slab, (ptr_t)addr);
 	if(PTR_IS_ERR(e))	{
-		logw("Unable to find addr %x", addr);
+		logw("Unable to find addr %x\n", addr);
 		return;
 	}
 	idx = ((ptr_t)addr - (ptr_t)e->start) / slab->slab_size;

@@ -1,3 +1,4 @@
+include $(CROOT)/cc_config.mk
 
 ARMV_MAJOR = 8
 ARMV_MINOR = 0
@@ -30,9 +31,26 @@ SH_FLAGS += -DARMV_MINOR=$(ARMV_MINOR)
 SH_FLAGS += -DARM_PROFILE=$(ARM_PROFILE)
 SH_FLAGS += -include config.h
 
+# float-cast-overflow, pointer-overflow
+#UBSAN_SAN = alignment,bool,builtin,bounds,enum,integer-divide-by-zero,nonnull-attribute,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound
+
 CFLAGS += -I$(CROOT)/src/include -I$(CROOT)/src/arch/$(ARCH)
 CFLAGS += -g
 CFLAGS += -MMD
+
+ifdef CONFIG_UBSAN
+include $(CROOT)/ubsan.mk
+endif
+
+ifndef UMODE
+ifdef CONFIG_KASAN
+include $(CROOT)/kasan.mk
+endif
+endif
+
+ifdef CONFIG_KCOV
+include $(CROOT)/kcov.mk
+endif
 
 #CFLAGS += -Wno-implicit-function-declaration
 #CFLAGS += -O1
@@ -55,6 +73,8 @@ QEMU_FLAGS += -machine virt
 QEMU_FLAGS += -cpu max
 QEMU_FLAGS += -nographic
 QEMU_FLAGS += -smp 1
+# TODO: There are some assumptions on the amount of memory in the code
+QEMU_FLAGS += -m 128M
 
 # Variables which should be defined in userconfig.mk
 ifdef USERARGS
@@ -68,6 +88,9 @@ endif
 ifeq ($(USE_DISK),1)
 QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=rootfs.tar,id=hd0,if=none,format=raw
 endif
+
+QEMU_FLAGS += -device vhost-vsock-device,guest-cid=3
+#QEMU_FLAGS += -chardev socket,host=127.0.0.1,port=8181,id=foo -device virtio-serial-device -device virtserialport,chardev=foo,id=test0,nr=1
 
 # RNG device
 QEMU_FLAGS += -object rng-random,filename=/dev/random,id=rng0
@@ -98,7 +121,6 @@ QEMU_FLAGS += -netdev user,id=net0,$(NET_SHARED)
 QEMU_FLAGS += -device virtio-net-device,netdev=net0
 
 
-# Kernel disks
 QEMU_FLAGS += -kernel Image
 QEMU_FLAGS += -initrd apps/$(UPROG)
 

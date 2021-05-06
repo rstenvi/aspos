@@ -1,7 +1,9 @@
 #ifndef __LOG_H
 #define __LOG_H
 
-#include "config.h"
+#if !defined(UMODE)
+#include "kernel.h"
+#endif
 
 #include <stdarg.h>
 
@@ -25,11 +27,15 @@ extern struct os_data osdata;
 */
 #define kwrite(s) osdata.kputs(s)
 #define kprintf(fmt, ...) osdata.printk(fmt, ##__VA_ARGS__)
+#if defined(UMODE)
+#define klog(level,fmt,...) dprintf(2, fmt, ##__VA_ARGS__)
+#else
 #define klog(level,fmt,...) \
 	mutex_acquire(cpu_loglock()); \
 	osdata.printk("%s|%s|%s|", level,__FILE__,__func__); \
 	osdata.printk(fmt, ##__VA_ARGS__); \
 	mutex_release(cpu_loglock())
+#endif
 
 #if CONFIG_LOG_LEVEL==0
 	/** Log debug information. */

@@ -25,7 +25,7 @@ unset CROOT
 aexport CROOT=$(pwd)
 aexport QEMU_PREFIX=~/local/qemu
 aexport QEMU_BUILD=~/buildsrc/qemu
-aexport QEMU_VERSION=stable-4.1
+aexport QEMU_VERSION=stable-5.0
 aexport JOBS=$(nproc)
 
 
@@ -108,8 +108,13 @@ function build_qemu()	{
 	# We are in qemu-dir now and:
 	# - We might be doing first configure and make, or
 	# - we might be doing an updated build of a new version
+	git pull
+	git checkout ${QEMU_VERSION}
 	git submodule update --recursive
-	./configure --enable-debug --enable-debug-info --prefix=${QEMU_PREFIX} && make -j${JOBS} && make install
+
+	# Only target used
+	# --target-list=aarch64-softmmu
+	./configure --target-list=aarch64-softmmu --enable-debug --enable-debug-info --enable-vhost-user --enable-vhost-kernel --enable-vhost-vsock --enable-vhost-net --prefix=${QEMU_PREFIX} && make -j${JOBS} && make install
 
 	if [[ "$?" -eq "0" ]]; then
 		echo "Build of qemu finished"
@@ -140,7 +145,7 @@ function build()	{
 			;;
 		qemu-prereqs-ubuntu)
 			# Based on: https://wiki.qemu.org/Hosts/Linux
-			sudo apt-get install -y git libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev
+			sudo apt update && sudo apt install -y git libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev
 			;;
 		*)
 			echo "${1} is not a valid build command"
@@ -237,12 +242,16 @@ function mu() {
 		return 1
 	fi
 
-	LIBVOL="-v ${CROOT}/src/libaspos.a:/opt/cross/${TARGET}/lib/libaspos.a"
-	LINKVOL="-v ${CROOT}/src/userlib/linker-${TARGET}.ld:/opt/cross/${TARGET}/lib/aspos-user.ld"
-	CRTVOL="-v ${CROOT}/src/userlib/crt0.o:/opt/cross/${TARGET}/lib/crt0.o"
-	INCVOL="-v ${CROOT}/src/include/lib.h:/opt/cross/${TARGET}/${TARGET}/include/aspos.h"
+	if test -f ${CROOT}/src/libaspos.a; then
+		LIBVOL="-v ${CROOT}/src/libaspos.a:/opt/cross/${TARGET}/lib/libaspos.a"
+		LINKVOL="-v ${CROOT}/src/userlib/linker-${TARGET}.ld:/opt/cross/${TARGET}/lib/aspos-user.ld"
+		CRTVOL="-v ${CROOT}/src/userlib/crt0.o:/opt/cross/${TARGET}/lib/crt0.o"
+		INCVOL="-v ${CROOT}/src/include/lib.h:/opt/cross/${TARGET}/${TARGET}/include/aspos.h"
 
-	docker run --rm --env-file ${CROOT}/aspos.env -v ${CROOT}:${CROOT} ${LINKVOL} ${INCVOL} ${CRTVOL} ${LIBVOL} -w ${CROOT}/src/apps ${DOCKERNAME} make ${@}
+		docker run --rm --env-file ${CROOT}/aspos.env -v ${CROOT}:${CROOT} ${LINKVOL} ${INCVOL} ${CRTVOL} ${LIBVOL} -w ${CROOT}/src/apps ${DOCKERNAME} make ${@}
+	else
+		echo "You need to build library first"
+	fi
 }
 
 function m()	{

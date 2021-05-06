@@ -170,10 +170,10 @@ int dtb_num_props(void* start)	{
 struct dtb_node* dtb_parse_node(void* start, char* strings, uint32_t* foffset)	{
 	uint32_t tmp, offset, propsz, propoff;
 	int pcount = 0;
-	struct dtb_node* ret = (struct dtb_node*)malloc( sizeof(struct dtb_node) );
-	if(ret == NULL)	return ret;
+	TMALLOC(ret, struct dtb_node);
+	if(PTR_IS_ERR(ret))	return ret;
 
-	ret->name = (char*)(start + cpu_linear_offset());
+	ret->name = (char*)(start/* + cpu_linear_offset()*/);
 	ret->childs = NULL;
 
 
@@ -182,16 +182,16 @@ struct dtb_node* dtb_parse_node(void* start, char* strings, uint32_t* foffset)	{
 
 	// Get number of properties so we can allocate array
 	ret->numprops = dtb_num_props(start + offset);
-	ret->props = (struct dtb_property*)malloc( sizeof(struct dtb_property) * ret->numprops );
+	ret->props = (struct dtb_property*)kmalloc( sizeof(struct dtb_property) * ret->numprops );
 
 	while(be_u32_to_cpu(start + offset) == OF_DT_PROP)	{
 		
 		propsz = be_u32_to_cpu(start + offset + 4);
 		propoff = be_u32_to_cpu(start + offset + 8);
 
-		ret->props[pcount].name = (strings + propoff + cpu_linear_offset());
+		ret->props[pcount].name = (strings + propoff /*+ cpu_linear_offset()*/);
 		ret->props[pcount].valsize = propsz;
-		ret->props[pcount].data = (start + offset + 12 + cpu_linear_offset());
+		ret->props[pcount].data = (start + offset + 12 /*+ cpu_linear_offset()*/);
 		ret->props[pcount].type = UNKNOWN;
 
 
@@ -242,7 +242,7 @@ struct dtb_node* dtb_parse_data(void* dtb)	{
 		if(curr != NULL)	{
 			if(curr->numchilds >= curr->maxchilds)	{
 				curr->maxchilds += 10;
-				curr->childs = (struct dtb_node**)realloc(curr->childs, (sizeof(void*) * curr->maxchilds) );
+				curr->childs = (struct dtb_node**)krealloc(curr->childs, (sizeof(void*) * curr->maxchilds) );
 			}
 			curr->childs[curr->numchilds++] = n;
 		}
@@ -368,6 +368,21 @@ void dtb_second_pass(struct dtb_node* root)	{
 	_dtb_second_pass(root, 1, 2);
 }
 
+void dtb_destroy(struct dtb_node* root)	{
+	int i;
+	kfree(root->props);
+	for(i = 0; i < root->numchilds; i++)	{
+		dtb_destroy(root->childs[i]);
+	}
+	if(root->childs)	kfree(root->childs);
+	kfree(root);
+}
+
+int dtb_exit(void)	{
+	dtb_destroy(cpu_get_parsed_dtb());
+	return 0;
+}
+poweroff_exit(dtb_exit);
 
 struct dtb_node* _dtb_find_name(struct dtb_node* curr, const char* n, bool exact, int skip)	{
 	int i;
@@ -513,5 +528,30 @@ void dtb_dump_compatible(struct dtb_node* n)	{
 			count++;
 		}
 	}
+}
+
+int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)    {
+    uint32_t cells_sz, cells_addr;
+
+    void* reg = dtb_get_ref("memory", "reg", 0, &cells_sz, &cells_addr);
+    ASSERT_TRUE(reg != NULL, "Unable to get memory from dtb");
+
+    ASSERT_TRUE(cells_sz == 2 && cells_addr == 2, "Unsupported sizes");
+
+    uint64_t addr = 0, length = 0;
+
+    uint32_t tmp = dtb_translate_ref(reg);
+    addr = (uint64_t)(tmp) << 32;
+    tmp = dtb_translate_ref(reg + 4);
+    addr += tmp;
+
+    tmp = dtb_translate_ref(reg + 8);
+    length = (uint64_t)(tmp) << 32;
+    tmp = dtb_translate_ref(reg + 12);
+    length += tmp;
+
+    *outaddr = addr;
+    *outlen = length;
+    return OK;
 }
 

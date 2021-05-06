@@ -6,8 +6,8 @@ int sem_init(struct semaphore* sem, int count)	{
 }
 
 struct semaphore* sem_new(int count)	{
-	struct semaphore* n = (struct semaphore*)malloc( sizeof(struct semaphore) );
-	if(n == NULL)	return ERR_ADDR_PTR(-1);
+	TMALLOC(n, struct semaphore);
+	if(PTR_IS_ERR(n))	return ERR_ADDR_PTR(-MEMALLOC);
 
 	sem_init(n, count);
 
@@ -39,5 +39,5 @@ int sem_wait(struct semaphore* sem)	{
 }
 
 int sem_free(struct semaphore* sem)	{
-	free(sem);
+	kfree(sem);
 }

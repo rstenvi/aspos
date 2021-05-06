@@ -84,7 +84,7 @@ struct netdev_status {
 
 
 static struct netdev_status status;
-struct virtio_dev_struct netdev;
+static struct virtio_dev_struct netdev;
 
 
 
@@ -95,7 +95,7 @@ int lastlen = 0;
 static int _net_new_incoming(void* buf, size_t sz);
 static int netdev_check_wakeup(void);
 
-static int virtio_net_irq_cb(void)	{
+static int virtio_net_irq_cb(int irqno)	{
 	struct virtio_dev_struct* dev = &netdev;
 	int res;
 
@@ -187,7 +187,7 @@ int net_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	struct virtio_net_hdr* data;
 	void* copy;
 
-	addr = virtq_add_buffer(dev, sz + sizeof(struct virtio_net_hdr), 0, 1, true);
+	addr = virtq_add_buffer(dev, sz + sizeof(struct virtio_net_hdr), 0, 1, true, false);
 	data = (struct virtio_net_hdr*)(cpu_linear_offset() + addr);
 
 
@@ -204,7 +204,7 @@ int net_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	memcpy(copy, buf, sz);
 
 	// TODO: We should have several buffers already lined up
-	addr = virtq_add_buffer(dev, 2048, VIRTQ_DESC_F_WRITE, 0, true);
+	addr = virtq_add_buffer(dev, 2048, VIRTQ_DESC_F_WRITE, 0, true, false);
 	status.recvbuffer = (void*)(addr + cpu_linear_offset());
 
 
@@ -221,6 +221,7 @@ static struct fs_struct virtionetdev = {
 	.name = "ethernet",
 	.read = net_read,
 	.write = net_write,
+	.perm = DRIVER_DEFAULT_PERM,
 };
 
 static void read_mac(struct virtio_dev_struct* dev, char* output)	{
@@ -275,5 +276,9 @@ int virtio_net_register(void)	{
 	virtio_register_cb(NETWORK_CARD, virtio_net_init);
 	return OK;
 }
-
 early_hw_init(virtio_net_register);
+
+int virtio_net_exit(void)    {
+    virtq_destroy_alloc(&netdev);
+}
+poweroff_exit(virtio_net_exit);

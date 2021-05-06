@@ -98,6 +98,8 @@ enum DEVTYPE {
 	RPROC_SERIAL,
 	VIRTIO_CAIF,
 	MEMORY_BALLOON,
+	DEVTYPE_INVALID1,
+	DEVTYPE_INVALID2,
 	GPU_DEVICE,
 	TIMER,
 	INPUT,
@@ -114,7 +116,20 @@ struct virtq_queue {
 	struct virtq_desc* desc;
 	int idx;
 };
-
+/*
+struct ringbuffer {
+	ptr_t ringbuffer;
+	union curr {
+		int byte;
+		int block;
+	};
+	enum max {
+		int bytes;
+		int blocks;
+	};
+	struct bm* free;
+};
+*/
 
 struct virtq {
 	uint32_t qsz;
@@ -138,6 +153,7 @@ struct virtio_dev_struct {
 	} feat;
 	enum DEVTYPE devtype;
 	bool initialized;
+	bool allocated;
 
 	struct virtq* virtq;
 
@@ -247,7 +263,7 @@ static inline void vio_write_features(ptr_t base, uint64_t val)	{
 int virtio_complete_init(struct virtio_dev_struct* dev);
 int virtio_virtq_init(struct virtio_dev_struct* dev);
 struct virtq_used* virtq_get_used(struct virtio_dev_struct* dev, int queue);
-ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail);
+ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail, bool chain);
 int virtq_create_alloc(struct virtio_dev_struct* dev, uint32_t qsz, int pages, int queue);
 int virtio_ack_intr(struct virtio_dev_struct* dev);
 ptr_t virtq_alloc_desc(uint32_t qsz);
@@ -256,6 +272,7 @@ int virtq_write_queue(struct virtio_dev_struct* dev, ptr_t paddr, int idx);
 int virtq_add_queue(struct virtio_dev_struct* dev, int queue);
 int virtio_intr_status(struct virtio_dev_struct* dev);
 int virtio_read_v1(struct virtio_dev_struct* dev, void* buf, size_t len);
+int virtq_destroy_alloc(struct virtio_dev_struct* dev);
 
 static inline struct virtq_desc* virtio_get_desc(struct virtio_dev_struct* dev, int queue, int idx) {
 	ptr_t start = (ptr_t)(dev->virtq->queues[queue].desc);

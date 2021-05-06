@@ -1,3 +1,5 @@
+UMODE := 1
+CFLAGS += -DUMODE=1
 include $(CROOT)/config.mk
 
 OBJ += lwip_semaphore.o

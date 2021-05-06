@@ -8,7 +8,7 @@
 /**
 * Function signature for callbacks after an IRQ is triggered.
 */
-typedef int (*gic_cb)(void);
+typedef int (*gic_cb)(int);
 
 int gic_find_pending(void);
 void gic_disable_intr(int irq);
@@ -49,6 +49,7 @@ typedef int (*highmeminit_t)(ptr_t);
 #define __kdatahmemfunc __attribute__((__section__(".kernel.data.hmemfunc")))
 #define __kdataearlyfunc __attribute__((__section__(".kernel.data.earlyfunc")))
 #define __kdataearlyhwfunc __attribute__((__section__(".kernel.data.earlyhwfunc")))
+#define __kdataexitfunc   __attribute__((__section__(".kernel.data.exitfunc")))
 
 /**
 * Functions registered at this step will be called after the system has been set
@@ -91,12 +92,6 @@ typedef int (*highmeminit_t)(ptr_t);
 */
 #define early_hw_init(func) __kdataearlyhwfunc deviceinit_t _UNIQUE_ID(func,__LINE__) = func
 
-
-enum JOB_TYPE {
-	JOB_NONE = 0,
-	JOB_READ,
-	JOB_WRITE,
-};
-
+#define poweroff_exit(func) __kdataexitfunc    deviceinit_t _UNIQUE_ID(func,__LINE__) = func
 
 #endif

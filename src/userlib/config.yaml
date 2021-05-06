@@ -1,3 +1,14 @@
+create_dev_null:
+  type: bool
+  default: false
+  help:
+    Create /dev/null driver in user-mode
+create_thread_exit:
+  type: bool
+  default: true
+  help:
+    Create and configure thread-exit functions. This should be enabled if
+    multiple threads are used.
 init_random_seed:
   type: bool
   default: false

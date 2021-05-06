@@ -84,8 +84,8 @@ static struct cpu_feat features[] = {
 };
 
 static int perform_patch(uint32_t id)	{
-	ptr_t start = &(ALTINSTR_START);
-	ptr_t stop = &(ALTINSTR_STOP);
+	ptr_t start = (ptr_t)(&(ALTINSTR_START));
+	ptr_t stop = (ptr_t)(&(ALTINSTR_STOP));
 	ptr_t i;
 	struct altinstr_repl* r;
 	uint32_t* ins;

@@ -12,7 +12,7 @@
 #define MAX_WAIT_TICKS 30
 
 int network_init_dhcp(long flags)	{
-	struct netif* n = (struct netif*)malloc( sizeof(struct netif) );
+	struct netif* n = (struct netif*)kmalloc( sizeof(struct netif) );
 	int count, ret;
 
 	/* Start network interface without having an IP attached */

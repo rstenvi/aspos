@@ -13,7 +13,7 @@ struct sys_mbox {
 
 err_t sys_mbox_new(sys_mbox_t *mbox, int size)	{
 	struct sys_mbox* m;
-	m = (struct sys_mbox*)malloc( sizeof(struct sys_mbox) );
+	m = (struct sys_mbox*)kmalloc( sizeof(struct sys_mbox) );
 	if(m == NULL)	return ERR_MEM;
 	memset(m, 0x00, sizeof(struct sys_mbox));
 
@@ -21,9 +21,9 @@ err_t sys_mbox_new(sys_mbox_t *mbox, int size)	{
 	m->numitems = 0;
 
 	if(size > 0)	{
-		m->data = (void**)malloc( sizeof(void*) * size);
+		m->data = (void**)kmalloc( sizeof(void*) * size);
 		if(m->data == NULL)	{
-			free(m);
+			kfree(m);
 			return ERR_MEM;
 		}
 	}
@@ -36,7 +36,7 @@ static err_t _sys_mbox_check_space(sys_mbox_t *mbox)	{
 	struct sys_mbox* m = *mbox;
 	if(m->numitems == m->maxitems)	{
 		m->maxitems += MBOX_INCREMENT;
-		m->data = (void**)realloc(m->data, sizeof(void*) * m->maxitems);
+		m->data = (void**)krealloc(m->data, sizeof(void*) * m->maxitems);
 		if(m->data == NULL)	return ERR_MEM;
 	}
 	return ERR_OK;
@@ -100,5 +100,5 @@ uint32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, uint32_t timeout)	{
  
 void sys_mbox_free(sys_mbox_t *mbox)	{
 	struct sys_mbox* m = *mbox;
-	if(m->data != NULL)	free(m->data);
+	if(m->data != NULL)	kfree(m->data);
 }

@@ -39,7 +39,7 @@ err_t aspos_netif_init(struct netif* netif)	{
 	netif->mtu = 1500;
 
 	// can use netif->state to store arbitrary data
-	struct aspos_ethif* state = (struct aspos_ethif*)malloc( sizeof(struct aspos_ethif) );
+	struct aspos_ethif* state = (struct aspos_ethif*)kmalloc( sizeof(struct aspos_ethif) );
 	if(state == NULL)	exit(1);
 	state->fd = open(ETH_DRIVER, 0, 0);
 	if(state->fd < 0)	exit(1);
@@ -67,7 +67,7 @@ err_t aspos_netif_link_output(struct netif *netif, struct pbuf *p)	{
 
 
 void aspos_netif_read_loop(void* arg)	{
-	char* buf = malloc( 1500 );
+	char* buf = kmalloc( 1500 );
 	int bytes = 0;
 	struct netif* n = (struct netif*)arg;
 	struct aspos_ethif* ethif = (struct aspos_ethif*)n->state;

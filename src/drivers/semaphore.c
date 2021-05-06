@@ -18,11 +18,12 @@ static struct fs_struct semaphoreuser = {
 	.name = "semaphore",
 	.open = semaphore_open,
 	.putc = semaphore_putchar,
+	.perm = ACL_PERM(ACL_WRITE, ACL_WRITE, ACL_WRITE),
 };
 
 int semaphore_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	int ret = OK;
-	struct semaphore_user* u = (struct semaphore_user*)malloc( sizeof(struct semaphore_user) );
+	struct semaphore_user* u = (struct semaphore_user*)kmalloc( sizeof(struct semaphore_user) );
 	if(PTR_IS_ERR(u))	{
 		ret = -MEMALLOC;
 		goto fail0;
@@ -36,10 +37,10 @@ int semaphore_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	u->waiting = NULL;
 	u->numwaiting = u->maxwaiting = 0;
 	n->data = (void*)u;
-	return ret;
+	return n->fd;
 
 fail1:
-	free(u);
+	kfree(u);
 fail0:
 	return ret;
 }
@@ -50,7 +51,7 @@ fail0:
 static int semaphore_add_waiting(struct semaphore_user* u, int tid)	{
 	if(u->numwaiting == u->maxwaiting)	{
 		u->maxwaiting += 4;
-		u->waiting = (int*)realloc(u->waiting, u->maxwaiting * sizeof(int));
+		u->waiting = (int*)krealloc(u->waiting, u->maxwaiting * sizeof(int));
 		if(PTR_IS_ERR(u->waiting))	return -MEMALLOC;
 	}
 	u->waiting[u->numwaiting++] = tid;

@@ -10,7 +10,7 @@
 int create_rootfs(void)	{
 	printf("Mounting rootfs\n");
 	int blockfd, res;
-	blockfd = open(ROOT_BLOCK_DEV, 0, 0);
+	blockfd = open(ROOT_BLOCK_DEV, OPEN_FLAG_RW, 0);
 	if(blockfd < 0)	{
 		printf("Unable to find block device at '%s'\n", ROOT_BLOCK_DEV);
 		return -1;

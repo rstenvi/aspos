@@ -11,6 +11,18 @@ OBJ += arch.o
 OBJ += cpu_reset.o
 OBJ += cpu_features.o
 
+
+ifdef CONFIG_KASAN
+CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+#mmu.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+#arch.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+#cpy_features.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+endif
+
+ifdef CONFIG_KCOV
+CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+endif
+
 all: $(OBJ) linker.lds
 
 linker.lds: linker.lds.S
@@ -24,4 +36,4 @@ DEPS := $(OBJ:.o=.d)
 -include $(DEPS)
 
 clean:
-	-rm -f $(OBJ) linker.lds *.d
+	-rm -f $(OBJ) linker.lds *.d *.o

@@ -9,11 +9,12 @@
 
 static struct fs_struct dev_null_fs = {
 	.name = "null",
+	.perm = ACL_PERM(ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE),
 };
 
 int init_dev_null(bool detach)	{
 	int fd;
-	fd = open("/dev/cuse", 0, 0);
+	fd = open("/dev/cuse", OPEN_FLAG_READ|OPEN_FLAG_CTRL, 0);
 	if(fd < 0)	{
 		printf("Unable to open /dev/cuse\n");
 		return fd;
@@ -23,8 +24,7 @@ int init_dev_null(bool detach)	{
 	fcntl(fd, CUSE_SET_FS_OPS, (ptr_t)(&dev_null_fs));
 
 	// open and write is valid, but we don't do anything
-	fcntl(fd, CUSE_SET_FUNC_EMPTY, VFS_FUNC_OPEN);
-	fcntl(fd, CUSE_SET_FUNC_EMPTY, VFS_FUNC_WRITE);
+	fcntl(fd, CUSE_SET_FUNC_EMPTY, VFS_FUNC_OPEN | VFS_FUNC_WRITE);
 
 	// After register, driver is effective
 	fcntl(fd, CUSE_REGISTER);

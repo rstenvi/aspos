@@ -11,7 +11,7 @@ struct cmdargs {
 	size_t size;
 };
 
-struct cmdargs cmdargs;
+static struct cmdargs cmdargs;
 
 
 char* cmdarg_value(const char* key)	{
@@ -76,7 +76,7 @@ int cmdline_init(void)	{
 
 	
 	cmdargs.size = char_in_string(line, ' ') + 1;
-	cmdargs.args = (struct cmdarg*)malloc( cmdargs.size * sizeof(struct cmdarg) );
+	cmdargs.args = (struct cmdarg*)kmalloc( cmdargs.size * sizeof(struct cmdarg) );
 	if(cmdargs.args == NULL)	{
 		cmdargs.size = 0;
 		return -MEMALLOC;
@@ -87,3 +87,9 @@ int cmdline_init(void)	{
 }
 
 early_hw_init(cmdline_init);
+
+int cmdline_exit(void)	{
+	kfree(cmdargs.args);
+	return 0;
+}
+poweroff_exit(cmdline_exit);

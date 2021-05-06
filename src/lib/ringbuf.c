@@ -2,10 +2,10 @@
 
 
 struct ringbuf* ringbuf_alloc(size_t sz)	{
-	struct ringbuf* ret = (struct ringbuf*)malloc(sizeof(struct ringbuf));
-	if(ret == NULL)	return ERR_ADDR_PTR(-1);
+	TMALLOC(ret, struct ringbuf);
+	if(PTR_IS_ERR(ret))	return ERR_ADDR_PTR(-MEMALLOC);
 
-	ret->start = malloc(sz);
+	ret->start = kmalloc(sz);
 	if(ret->start == NULL)	return ERR_ADDR_PTR(-1);
 
 	ret->maxlen = sz;
@@ -14,6 +14,12 @@ struct ringbuf* ringbuf_alloc(size_t sz)	{
 	mutex_clear(&ret->lock);
 
 	return ret;
+}
+
+void ringbuf_delete(struct ringbuf* rb)	{
+	mutex_acquire(&rb->lock);
+	kfree(rb->start);
+	kfree(rb);
 }
 
 int ringbuf_num_bytes(struct ringbuf* rb)	{

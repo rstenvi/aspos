@@ -92,9 +92,11 @@ struct uart_struct {
 	enum CHARDEV_MODE mode;
 
 	struct uart_read job;
+
+	struct XIFO* write_pending;
 };
 
-struct uart_struct uart;
+static struct uart_struct uart;
 
 #define UART_BASE 0x09000000
 
@@ -102,9 +104,9 @@ struct uart_struct uart;
 #define TMP_CLOCKFREQ 0x16e3600
 #define TMP_BAUD      115200
 
-volatile uint8_t uartlock;
+static volatile uint8_t uartlock = 0;
 
-#if defined(CONFIG_EARLY_UART)
+//#if defined(CONFIG_EARLY_UART)
 static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
 static bool poll_have_rx_data()	{
 	uint32_t r = 0;
@@ -136,7 +138,7 @@ int uart_early_init()	{
 int uart_early_write(const char* str)	{
 	while(*str != 0x00)	uart_early_putc(*str++);
 }
-#endif
+//#endif
 
 static void pl011_flush(ptr_t base)	{
 	// TODO: Implement
@@ -278,24 +280,62 @@ int pl011_putc(struct vfsopen* o, int c)	{
 	mutex_release(&uartlock);
 	return (int)c;
 }
+void _write_string(char* buf)	{
+	int l = strlen(buf), i;
+	for(i = 0; i < l; i++)	{
+		DMAW32(uart.base, (uint32_t)(buf[i]));
+	}
+}
+void _try_write_pending(void)	{
+	if(uart.write_pending == NULL)	return;
+	char* buf;
+	while( (buf = xifo_pop_front(uart.write_pending)) != NULL)	{
+		_write_string(buf);
+		kfree(buf);
+	}
+}
+int _shared_write(char* buf, size_t count, bool kernel)	{
+	int res, i;
 
-int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
-	size_t i;
-	char* arr;
-	if(ADDR_USER(buf))	{
-		arr = strdup_user(buf);
+	// We might write to this log from an error condition which resulted from a
+	// print. To avoid a deadlock in these instances, we only try and acquire
+	// the lock. If we can't get it, we add the buffer to a queue and try and
+	// write it afterwardsy.
+	res = mutex_try_acquire(&uartlock);
+	if(res == OK)	{
+		_try_write_pending();
+		for(i = 0; i < count; i++)	{
+			DMAW32(uart.base, (uint32_t)(buf[i]));
+		}
+		_try_write_pending();
+		mutex_release(&uartlock);
+
+		if(!kernel)	kfree(buf);
 	}
 	else	{
-		arr = (char*)buf;
+		if(kernel)	{
+			char* _buf = (char*)kmalloc(count);
+			memcpy(_buf, buf, count);
+			xifo_push_back(uart.write_pending, _buf);
+		}
+		else	{
+			xifo_push_back(uart.write_pending, buf);
+		}
 	}
-	mutex_acquire(&uartlock);
-	for(i = 0; i < count; i++)	{
-		DMAW32(uart.base, (uint32_t)(arr[i]));
-	}
-	mutex_release(&uartlock);
-	if(ADDR_USER(buf))	{
-		free_user(arr);
-	}
+	return res;
+}
+int kern_write(char* buf, size_t count)	{
+	return _shared_write(buf, count, true);
+}
+int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
+	int res;
+	size_t i;
+	char* arr;
+	ASSERT(ADDR_USER(buf));
+	arr = (char*)kmalloc(count);
+	memcpy_from_user(arr, buf, count);
+
+	_shared_write(arr, count, false);
 	return count;
 }
 
@@ -344,7 +384,7 @@ int pl011_receive(void)	{
 	return OK;
 }
 
-int pl011_irq_cb(void)	{
+int pl011_irq_cb(int irqno)	{
 	uint32_t r = 0;
 	DMAR32(uart.base + PL011_OFF_UARTMIS, r);
 	if(FLAG_SET(r, PL011_IMSC_RXIM))	{
@@ -374,6 +414,7 @@ static struct fs_struct consoledev = {
 	.getc = pl011_getc,
 	.putc = pl011_putc,
 	.fcntl = pl011_fcntl,
+	.perm = ACL_PERM(ACL_READ|ACL_WRITE|ACL_CTRL, ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE)
 };
 
 
@@ -391,6 +432,12 @@ int init_pl011(void)	{
 	uart.mode = CHAR_MODE_LINE;
 
 	uart.job.tid = -1;
+
+	uart.write_pending = xifo_alloc(5, 2);
+#if defined(CONFIG_KASAN)
+	// This makes leak checking slightly easier
+	kasan_never_freed(uart.write_pending);
+#endif
 
 	_init_pl011(uart.base, TMP_BAUD, TMP_CLOCKFREQ);
 	_pl011_irq_init(TMP_INTR_TYPE, TMP_INTR_IRQNO, TMP_INTR_FLAGS);

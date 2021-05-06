@@ -11,7 +11,7 @@ struct mq {
 };
 
 int mq_init(struct mq* mq, size_t max)	{
-	mq->msgs = (void**)malloc( sizeof(void*) * max);
+	mq->msgs = (void**)kmalloc( sizeof(void*) * max);
 	mq->ccount = 0;
 	mq->mcount = max;
 	mutex_clear(&mq->lock);
@@ -19,8 +19,8 @@ int mq_init(struct mq* mq, size_t max)	{
 }
 
 struct mq* mq_new(size_t max)	{
-	struct mq* mq = (struct mq*)malloc( sizeof(struct mq) );
-	if(mq == NULL)	return ERR_ADDR_PTR(-1);
+	TMALLOC(mq, struct mq);
+	if(PTR_IS_ERR(mq))	return ERR_ADDR_PTR(-MEMALLOC);
 
 	mq_init(mq, max);
 	return mq;

@@ -1,7 +1,9 @@
 #include "kernel.h"
 
-
-struct os_data osdata;
+#if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
+int last_driver_uid = USERID_LAST;
+#endif
+__attribute__((__section__(".bss"))) struct os_data osdata;
 
 extern ptr_t KERNEL_START;
 extern ptr_t KERNEL_END;
@@ -20,13 +22,13 @@ extern ptr_t CPUCORE_START;
 extern ptr_t CPUCORE_STOP;
 
 static void percpu_start(void);
-static void call_inits(ptr_t start, ptr_t stop);
 static void init_after_linear_region(void);
 static void kstart_stage2(void);
 static void init_sbrk(void);
 static void init_drivers(void);
 static int init_memory(ptr_t kimage);
-static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
+void secondary_cpu_start(void);
+//static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
 
 ptr_t secondary_cpu_reset = 0;
 
@@ -83,7 +85,7 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 	* todo: This is only a fix for gdb-scripts.
 	* It can be at the top, but it them becomes more cumbersome to debug.
 	*/
-	stack -= 32;
+//	stack -= 32;
 
 	/* Set stack and jump to stage2 of boot process */
 	set_stack(stack, kstart_stage2);
@@ -111,12 +113,19 @@ static void kstart_stage2(void) {
 
 	mmu_second_init();
 
+#if defined(CONFIG_KASAN)
+	kasan_init();
+	kasan_mark_valid((ptr_t)osdata.dtb, MB);
+	kasan_mark_valid(VMMAP_START, PAGE_SIZE);
+	kasan_mark_valid(ARM64_VA_KERNEL_STACK_START, ARM64_VA_KERNEL_STACK_SIZE);
+#endif
+
 	osdata.printk = printf;
 
 	logi("Reached stage 2 with memory set up\n");
 
-	osdata.fileids = bm_create(1000);
-	ASSERT_TRUE(osdata.fileids != NULL, "memory");
+//	osdata.fileids = bm_create(512);
+//	ASSERT_TRUE(osdata.fileids != NULL, "memory");
 
 	logi("Taking second pass at DTB\n");
 	struct dtb_node* root = dtb_parse_data(osdata.dtb);
@@ -162,12 +171,14 @@ static void kstart_stage2(void) {
 
 	// Init user memory and remove identity map
 	logi("Initializing user memory\n");
-	mmu_init_user_memory();
+	mmu_init_user_memory((ptr_t*)osdata.upgd);
 
 	// Load ELF from initrd
+	/*
 	struct loaded_exe* exe = elf_load((void*)(osdata.linear_offset + 0x44000000));
 	logi("entry @ 0x%lx\n", exe->entry);
-	thread_new_main(exe);
+	*/
+	thread_new_main();
 
 	logi("Trigger per-CPU code\n");
 	percpu_start();
@@ -190,7 +201,7 @@ static void percpu_start(void)	{
 	mutex_release( &(osdata.cpus.cpus[0].readylock) );
 
 	logi("Starting thread scheduler\n");
-	thread_schedule_next();
+	thread_schedule_next(0);
 }
 
 void secondary_cpu_start(void)	{
@@ -199,25 +210,10 @@ void secondary_cpu_start(void)	{
 	mutex_release( &(osdata.cpus.cpus[id].readylock) );
 
 	// Wait until we can acquire boot lock before continuing
-	// We immediately release it so that the next CPU can continue
 	mutex_acquire( &(osdata.cpus.cpus[0].readylock) );
 
 	// Shared function for all per-cpu functionality
 	percpu_start();
-}
-
-
-/**
-* Panic implementation which prints an error message and halts execution.
-*/
-void panic(const char* msg, const char* file, int line)	{
-	// We always want to reliably print some type of message
-	osdata.kputs(msg);
-
-	// We then try and print some details about environment
-	osdata.printk("Location: %s:%i\n", file, line);
-	arch_dump_regs();
-	while(1);
 }
 
 static void init_drivers(void)	{
@@ -233,7 +229,7 @@ static void init_drivers(void)	{
 }
 
 
-static void call_inits(ptr_t start, ptr_t stop)	{
+void call_inits(ptr_t start, ptr_t stop)	{
 	ptr_t curr;
 	deviceinit_t func;
 	int ret;
@@ -260,7 +256,7 @@ static int init_memory(ptr_t kimage)	{
 	mmu_create_linear(osdata.pmm.start, osdata.pmm.end);
 
 	// Should use linear offset for DTB from now on
-	osdata.dtb += cpu_linear_offset();
+	osdata.dtb = (void*)((ptr_t)osdata.dtb + ARM64_VA_LINEAR_START);
 	return OK;
 }
 
@@ -304,7 +300,7 @@ static void init_after_linear_region(void)	{
 		ret = func(lin);
 	}
 }
-
+/*
 static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)	{
 	uint32_t cells_sz, cells_addr;
 
@@ -314,7 +310,6 @@ static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)	{
 	ASSERT_TRUE(cells_sz == 2 && cells_addr == 2, "Unsupported sizes");
 
 	uint64_t addr = 0, length = 0;
-
 
 	uint32_t tmp = dtb_translate_ref(reg);
 	addr = (uint64_t)(tmp) << 32;
@@ -330,4 +325,4 @@ static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)	{
 	*outlen = length;
 	return OK;
 }
-
+*/

@@ -64,6 +64,12 @@ ptr_t vmmap_alloc_pages(int pages, enum MEMPROT prot, ptr_t flags)	{
 	// This function will simply reserve the VA in bitmap
 	ptr_t vaddr = allocate_virt_contiguous(v, pages);
 
+#if defined(CONFIG_KASAN)
+	if(!(FLAG_SET(flags, VMMAP_FLAG_KASAN_NOMARK)))	{
+		kasan_mark_valid(vaddr, pages * PAGE_SIZE);
+	}
+#endif
+
 	// If lazy alloc is used, we simply reserve and return addr
 	if(FLAG_SET(flags, VMMAP_FLAG_LAZY_ALLOC))	{
 		return vaddr;
@@ -129,3 +135,9 @@ void vmmap_unmap(ptr_t vaddr)	{
 	bm_clear( &(v->bm), (vaddr - v->vaddrstart) / PAGE_SIZE );
 }
 
+void vmmap_unmap_pages(ptr_t vaddr, int pages)	{
+	int i;
+	for(i = 0; i < pages; i++)	{
+		vmmap_unmap(vaddr + (i * PAGE_SIZE));
+	}
+}

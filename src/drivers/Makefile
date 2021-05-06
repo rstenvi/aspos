@@ -10,9 +10,19 @@ OBJ += virtio.o
 OBJ += virtio-rng.o
 OBJ += virtio-net.o
 OBJ += virtio-blk.o
+OBJ += virtio-socket.o
+OBJ += virtio-console.o
 OBJ += mutex.o
 OBJ += semaphore.o
 OBJ += cuse.o
+
+ifdef CONFIG_UBSAN
+OBJ += ubsan-test.o
+endif
+
+ifdef CONFIG_KASAN
+OBJ += kasan-test.o
+endif
 
 all: $(OBJ)
 
@@ -20,4 +30,4 @@ DEPS := $(OBJ:.o=.d)
 -include $(DEPS)
 
 clean:
-	-rm -f $(OBJ) *.d
+	-rm -f $(OBJ) *.d *.o

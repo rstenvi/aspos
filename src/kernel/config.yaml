@@ -7,7 +7,39 @@ log_level:
     lot of debug information. 1 (info) is sensible during normal development,
     while 2 (warning) or 3 (error) is meant for production. Fatal errors (4) are
     always logged.
-
+driver_userid_auto_increment:
+  type: bool
+  default: false
+  help:
+    If true, the OS will generate a new ID as owner for every driver. This makes
+    it easier to create daemons and drivers with minimum set of privileges.
+support_users:
+  type: bool
+  default: false
+  help:
+    Associate each process with a user / group id.
+support_syscall_filter:
+  type: bool
+  default: false
+  help:
+    Allow the process to reduce the number of allowed syscalls. 
+exit_when_no_threads:
+  type: bool
+  default: true
+  help:
+    If true, the OS will perform a check whenever a thread exits and if there
+    are no threads which can run or wakeup, the system will poweroff.
+multi_process:
+  type: bool
+  default: false
+  help:
+    If true, the OS supports multiple processes running in individual address
+    spaces. This option has no effect on the number of threads which can execute
+    simultaneously. The system will always try and execute threads on every
+    core. This option will enable multiple processes running in different
+    address spaces and will therefore allow some separation of data between
+    processes. Without this option, there can be no security between user
+    threads.
 max_cpus:
   type: int
   default: 4
@@ -74,7 +106,7 @@ early_uart:
 
 exit_as_poweroff:
   type: bool
-  default: true
+  default: false
   help:
     Treat user program exit as a poweroff. This effectively means that when the
     user-mode program is finished, the computer should turn off. If disabled,

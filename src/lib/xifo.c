@@ -5,7 +5,7 @@ size_t xifo_count(struct XIFO* xifo) { return xifo->last - xifo->first; }
 
 int xifo_init(struct XIFO* xifo, size_t max, size_t increment)	{
 	// Allocate initial array
-	void** i = (void**)malloc( sizeof(void*) * max );
+	void** i = (void**)kmalloc( sizeof(void*) * max );
 	if(i == NULL)	return -(1);
 
 	xifo->items = i;
@@ -22,24 +22,32 @@ int xifo_init(struct XIFO* xifo, size_t max, size_t increment)	{
 }
 
 struct XIFO* xifo_alloc(size_t max, size_t increment)	{
-	struct XIFO* ret = NULL;
-	ret = (struct XIFO*)malloc(sizeof(struct XIFO));
-	if(ret == NULL)	return ERR_ADDR_PTR(-1);
+	TMALLOC(ret, struct XIFO);
+	if(PTR_IS_ERR(ret))	return ERR_ADDR_PTR(-MEMALLOC);
 
 	if(xifo_init(ret, max, increment) != OK)	{
-		free(ret);
+		kfree(ret);
 		return ERR_ADDR_PTR(-1);
 	}
 
 	return ret;
 }
 
+void xifo_delete(struct XIFO* xifo)	{
+	kfree(xifo->items);
+	kfree(xifo);
+}
+
 static void xifo_move_down(struct XIFO* xifo)	{
 	size_t i;
+	int items = (xifo->last - xifo->first);
+	memmove(&(xifo->items[0]), &(xifo->items[xifo->first]), sizeof(void*) * items);
+	/*
 	// Copy all the elements
 	for(i = xifo->first; i <= xifo->last; i++)	{
 		xifo->items[i - xifo->first] = xifo->items[i];
 	}
+	*/
 
 	// Must reset the counters
 	xifo->last -= xifo->first;
@@ -53,7 +61,7 @@ static void xifo_move_up(struct XIFO* xifo)	{
 		return;
 	}
 	// Copy all the elements
-	for(i = (int)xifo->last; i >= (int)xifo->first; i--)	{
+	for(i = (int)xifo->last - 1; i >= (int)xifo->first; i--)	{
 		xifo->items[xifo->max - 1 + i - xifo->last] = xifo->items[i];
 	}
 
@@ -63,7 +71,7 @@ static void xifo_move_up(struct XIFO* xifo)	{
 }
 
 static int _xifo_push_back(struct XIFO* xifo, void* v)	{
-	if(xifo->last < (xifo->max - 1) )	{
+	if(xifo->last < xifo->max)	{
 		xifo->items[xifo->last++] = v;
 		return OK;
 	}
@@ -74,8 +82,12 @@ static int _xifo_push_back(struct XIFO* xifo, void* v)	{
 	}
 	else	{
 		// No more space left, allocate and try again
-		void* re = realloc(xifo->items, sizeof(void*) * (xifo->max + xifo->increment) );
-		if(re == NULL)	return -(1);
+		void* re = NULL;
+		if(xifo->increment > 0)	{
+			re = krealloc(xifo->items, sizeof(void*) * (xifo->max + xifo->increment) );
+			if(re == NULL)	return -(1);
+		}
+		else	return -1;
 
 		// Change pointer and update values
 		xifo->items = re;
@@ -105,8 +117,12 @@ static int _xifo_push_front(struct XIFO* xifo, void* v)	{
 	}
 	else	{
 		// No more space left, allocate and try again
-		void* re = realloc(xifo->items, sizeof(void*) * (xifo->max + xifo->increment) );
-		if(re == NULL)	return -(1);
+		void* re = NULL;
+		if(xifo->increment > 0)	{
+			re = krealloc(xifo->items, sizeof(void*) * (xifo->max + xifo->increment) );
+			if(re == NULL)	return -(1);
+		}
+		else	return -1;
 
 		// Change pointer and update values
 		xifo->items = re;
@@ -153,19 +169,37 @@ done:
 }
 
 void* xifo_pop_front(struct XIFO* xifo)	{
+	ASSERT(PTR_IS_VALID(xifo));
 	return _xifo_pop_front(xifo, true);
 }
 void* xifo_peep_front(struct XIFO* xifo)	{
+	ASSERT(PTR_IS_VALID(xifo));
 	return _xifo_pop_front(xifo, false);
 }
 void* xifo_pop_back(struct XIFO* xifo)	{
+	ASSERT(PTR_IS_VALID(xifo));
 	return _xifo_pop_back(xifo, true);
 }
 void* xifo_peep_back(struct XIFO* xifo)	{
+	ASSERT(PTR_IS_VALID(xifo));
 	return _xifo_pop_back(xifo, false);
 }
 
+void* xifo_item(struct XIFO* xifo, int idx)	{
+	ASSERT(PTR_IS_VALID(xifo));
+	void* ret = NULL;
+	mutex_acquire(&xifo->lock);
+	if(idx >= (xifo->last - xifo->first))	{
+		goto err;
+	}
+	ret = xifo->items[xifo->first + idx];
+err:
+	mutex_release(&xifo->lock);
+	return ret;
+}
+
 void* xifo_search(struct XIFO* xifo, void* val, bool (*search)(void*,void*)) {
+	ASSERT(PTR_IS_VALID(xifo));
 	void* ret = NULL;
 	int i;
 	mutex_acquire(&xifo->lock);

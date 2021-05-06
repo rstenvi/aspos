@@ -3,6 +3,8 @@
 #include <fcntl.h>
 #include <string.h>
 
+#include "ubsan.h"
+#include "kasan.h"
 #include "lib.h"
 #include "picol.h"
 
@@ -47,7 +49,7 @@ int xopen(const char* s, int flags, int mode)	{
 #define ROOT_BLOCK_DEV "/dev/block"
 int create_rootfs(void) {
     int blockfd, res;
-    blockfd = open(ROOT_BLOCK_DEV, 0, 0);
+    blockfd = open(ROOT_BLOCK_DEV, OPEN_FLAG_RW, 0);
     if(blockfd < 0) {
         printf("Unable to find block device at '%s'\n", ROOT_BLOCK_DEV);
         return -1;
@@ -73,8 +75,11 @@ void picol_test_rootfs(void)   {
 	return;
 }
 void picol_test2(void)	{
+#define CAT_FILE "/root/test.txt"
 	create_rootfs();
-	cmd_cat("/root/test.txt", STDOUT);
+	printf("Reading '%s'\n", CAT_FILE);
+	cmd_cat(CAT_FILE, STDOUT);
+	cmd_cat("/root/", STDOUT);
 //	picol_test_rootfs();
 }
 
@@ -91,7 +96,7 @@ int xread(int fd, void* buf, int count)	{
 void* xzalloc(int bytes)	{
 	void* ret;
 
-	ret = malloc(bytes);
+	ret = kmalloc(bytes);
 	if(ret == NULL)	{
 		printf("Unable to allocate %i bytes of memory\n");
 		exit(1);
@@ -106,14 +111,14 @@ void dump_random(int count)	{
 	int fd, res;
 
 	printf("Reading %i bytes of random data\n", count);
-	buf = (char*)malloc(count);
+	buf = (char*)kmalloc(count);
 	if(buf == NULL)	{
 		printf("Unable to allocate %i bytes of data\n");
 		exit(1);
 	}
 	printf("Allocated data\n");
 
-	fd = xopen("/dev/random", 0, 0);
+	fd = xopen("/dev/random", OPEN_FLAG_READ, 0);
 	printf("Opened fd %i and starting read\n", fd);
 	printf("Read can be slow if new data must be generated\n");
 	res = xread(fd, buf, count);
@@ -139,7 +144,7 @@ void test_mutex(void)	{
 	int fd, ntid1, ntid2;
 	printf("Testing mutex driver\n");
 
-	fd = xopen("/dev/mutex", 0, 0);
+	fd = xopen("/dev/mutex", OPEN_FLAG_WRITE, 0);
 	printf("Opened mutes @ %i\n", fd);
 
 	ntid1 = new_thread( (uint64_t) _mutex_thread, 1, fd);
@@ -186,7 +191,7 @@ void test_semaphore(void)	{
 	printf("Testing semaphore driver\n");
 	#define NUM_RESOURCES 5
 
-	fd = xopen("/dev/semaphore", 0, NUM_RESOURCES);
+	fd = xopen("/dev/semaphore", OPEN_FLAG_WRITE, NUM_RESOURCES);
 	printf("Opened semaphore @ %i\n", fd);
 
 	tid1 = new_thread( (uint64_t) _semaphore_thread, 2, fd, 3);
@@ -207,7 +212,7 @@ void test_semaphore(void)	{
 
 void test_devnull(void)	{
 	int fd, res;
-	fd = open("/dev/null", 0, 0);
+	fd = open("/dev/null", OPEN_FLAG_RW, 0);
 	if(fd < 0)	{
 		printf("Unable to open /dev/null\n");
 		return;
@@ -219,12 +224,22 @@ void test_proc(void)	{
 #define MAX_BUF 128
 	int fdproc, fd, ret;
 	char buf[MAX_BUF];
-	fdproc = init_proc(false);
-	if(fdproc < 0)	{
-		printf("Unable to mount /proc error: %i\n", fdproc);
-		return;
+
+	// Run proc-driver in different process
+	if(fork())	{
+		fdproc = init_proc(false);
+		if(fdproc < 0)	{
+			printf("Unable to mount /proc error: %i\n", fdproc);
+			return;
+		}
+		// The process should be kept alive even if all threads exit
+		conf_process(PROC_KEEPALIVE, true);
+//		proc_keepalive();
+		exit_thread(0);
 	}
-	fd = open("/proc/version", 0, 0);
+	msleep(100);
+	// This is parent
+	fd = open("/proc/version", OPEN_FLAG_READ, 0);
 	if(fd < 0)	{
 		printf("Unable to open /proc/version: %i\n", fd);
 		return;
@@ -239,7 +254,7 @@ void write_block(void)	{
 	char buf[16];
 	memset(buf, 0x42, 16);
 	int res, fd;
-	fd = open("/dev/block", 0, 0);
+	fd = open("/dev/block", OPEN_FLAG_RW, 0);
 	if(fd > 0)	{
 		res = write(fd, buf, 16);
 		printf("write = %i\n", res);
@@ -270,13 +285,176 @@ void test_read_block(int bytes, int offset)	{
 	int res, fd;
 
 	buf = (char*)xzalloc(bytes);
-	fd = xopen("/dev/block", 0, 0);
+	fd = xopen("/dev/block", OPEN_FLAG_RW, 0);
 	lseek(fd, offset, SEEK_SET);
 	res = xread(fd, buf, bytes);
 	hexdump(buf, bytes);
-	res = xread(fd, buf, bytes);
-	hexdump(buf, bytes);
 	close(fd);
+}
+
+void test_dataabort(void)	{
+	int* a = (int*)0xdeadbeef;
+	int b = *a;
+	printf("*a = %x\n", b);
+}
+int aa(void)	{ return 42; }
+
+int test_vconsole(void)	{
+	int fd, res;
+	char buf[64];
+	fd = open("/dev/vconsole", OPEN_FLAG_READ | OPEN_FLAG_CTRL);
+	if(fd < 0)	return fd;
+
+	res = fcntl(fd, FCNTL_VCONSOLE_INIT);
+	if(res < 0)	return res;
+
+	close(fd);
+
+	fd = open("/dev/vconsole-1", OPEN_FLAG_READ | OPEN_FLAG_WRITE);
+	if(fd < 0)	return fd;
+
+	res = write(fd, "Hello\n", 6);
+	if(res < 0)	return res;
+
+	res = read(fd, buf, 64);
+	if(res < 0)	return res;
+	printf("read '%s'\n", buf);
+
+	close(fd);
+
+	return 0;
+}
+int test_kasan(void)	{
+	int fd, res;
+	fd = open("/dev/kasan-test", OPEN_FLAG_READ | OPEN_FLAG_CTRL);
+	if(fd < 0)	return fd;
+
+	res = fcntl(fd, FCNTL_KASAN_ALL_TESTS);
+	if(res < 0)	goto err1;
+
+err1:
+	close(fd);
+	return res;
+}
+
+int test_ubsan(void)	{
+	int fd, res;
+	fd = open("/dev/ubsan-test", OPEN_FLAG_READ | OPEN_FLAG_CTRL);
+	if(fd < 0)	return fd;
+
+	res = fcntl(fd, FCNTL_UBSAN_ALL_TESTS);
+	if(res < 0)	goto err1;
+
+err1:
+	close(fd);
+	return res;
+}
+
+int test_socket(void)	{
+#define BUF_MAX (32)
+	char buf[BUF_MAX];
+	int res, i;
+	int fd = open("/dev/socket", OPEN_FLAG_RW | OPEN_FLAG_CTRL, 0);
+	if(fd < 0)	return fd;
+
+//	res = fcntl(fd, FCNTL_VIRTIO_SET_SRC_PORT, 9999);
+	res = fcntl(fd, FCNTL_VIRTIO_SET_TARGET, (2 | (9999UL << 32)));
+	if(res < 0)	return res;
+//	res = fcntl(fd, FCNTL_VIRTIO_LISTEN);
+//	if(res < 0)	return res;
+	res = fcntl(fd, FCNTL_VIRTIO_CONNECT);
+	if(res < 0)	return res;
+	for(i = 0; i < 10; i++)	{
+		res = write(fd, "Hello", 5);
+		if(res < 0)	return res;
+		printf("Wrote %i bytes\n", res);
+	}
+
+	close(fd);
+
+
+//	res = write(fd, "Hello", 5);
+//	if(res < 0)	return res;
+/*
+	res = read(fd, buf, BUF_MAX);
+	if(res < 0)	return res;
+	printf("Read '%s' from remote host\n");
+*/
+/*
+//	res = fcntl(fd, FCNTL_VIRTIO_SET_TARGET, (2 | (9999UL << 32)));
+//	if(res < 0)	return res;
+	res = write(fd, "Hello", 5);
+	if(res < 0)	return res;
+//	res = write(fd, "Hello", 5);
+//	if(res < 0)	return res;
+	res = read(fd, buf, BUF_MAX);
+	if(res < 0)	return res;
+	printf("Read '%s' from remote host\n");
+	*/
+	msleep(3000);
+	return 0;
+}
+int test_kcov(void)	{
+#define KCOV_MAX_ENTRIES (1000)
+#define ALLOC_BUFFER     (4096 * 2)
+	int fd, res, entries, i;
+	void* addr;
+
+
+	fd = open("/dev/kcov", OPEN_FLAG_READ|OPEN_FLAG_CTRL);
+	if(fd < 0)	return fd;
+
+	res = fcntl(fd, FCNTL_KCOV_INIT);
+	if(res < 0)	return res;
+
+	addr = mmap(NULL, ALLOC_BUFFER, MAP_PROT_READ|MAP_PROT_WRITE, MAP_NON_CLONED, fd);
+	printf("Addr: %p\n", addr);
+
+/*
+	buf = (ptr_t*)kmalloc( ALLOC_BUFFER );
+	if(PTR_IS_ERR(buf))	return -1;
+*/
+	res = fcntl(fd, FCNTL_KCOV_ENABLE);
+	if(res < 0)	goto err1;
+
+	yield();
+
+	res = fcntl(fd, FCNTL_KCOV_DISABLE);
+	if(res < 0)	goto err1;
+/*
+	res = read(fd, buf, ALLOC_BUFFER);
+	entries = res / sizeof(ptr_t);
+	*/
+	struct kcov_data* data = (struct kcov_data*)addr;
+	printf("Read %i entries\n", data->currcount);
+	for(i = 0; i < data->currcount; i++)	{
+		printf("0x%lx\n", data->entries[i]);
+	}
+	munmap(addr);
+	close(fd);
+err1:
+	return res;
+}
+int test_fork(void)	{
+	int val = 42;
+	int pid;
+	pid = fork();
+	if(pid == 0)	{
+	//	write(STDOUT, "Child\n", 6);
+		//exit_thread(0);
+		msleep(1000);
+		printf("Child: %i\n", val);
+//		write(STDOUT, "Child\n", 6);
+	}
+	else	{
+		val++;
+		// With a delay here, the second proc which finishes
+		// will return to incorrect place
+		// Might be a problem with how the MMU is unmapped
+		//msleep(2000);
+		printf("Parent created %i | val: %i\n", pid, val);
+	}
+	return 0;
 }
 
 void read_stdin(void)	{
@@ -294,7 +472,7 @@ void print_usage()	{
 }
 
 int main(int argc, char* argv[])	{
-	int i;
+	int i, res = 0;
 	printf("Entering user mode\n");
 	if(argc <= 1)	{
 		printf("Did not receive any argument\n");
@@ -338,12 +516,38 @@ int main(int argc, char* argv[])	{
 	else if(!strcmp(argv[1], "picol2"))	{
 		picol_test2();
 	}
+	else if(!strcmp(argv[1], "dataabort"))	{
+		test_dataabort();
+	}
+	else if(!strcmp(argv[1], "fork"))	{
+		test_fork();
+	}
+	else if(!strcmp(argv[1], "socket"))	{
+		test_socket();
+	}
+	else if(!strcmp(argv[1], "kcov"))	{
+		res = test_kcov();
+	}
+	else if(!strcmp(argv[1], "ubsan"))	{
+		res = test_ubsan();
+	}
+	else if(!strcmp(argv[1], "kasan"))	{
+		res = test_kasan();
+	}
+	else if(!strcmp(argv[1], "vconsole"))	{
+		res = test_vconsole();
+	}
 	else	{
 		printf("'%s' is not a valid command\n", argv[1]);
 		print_usage();
 		exit(1);
 	}
+	if(res != 0)	{
+		printf("Invalid return: %i\n", res);
+	}
 
+	//msleep(50000);
 	printf("Leaving...\n");
+	//_exit(0);
 	return 0;
 }

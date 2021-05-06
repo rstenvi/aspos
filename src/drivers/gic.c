@@ -46,7 +46,7 @@ struct gic_struct {
 	struct irq_cb* callbacks;
 };
 
-struct gic_struct gic_struct;
+static struct gic_struct gic_struct;
 
 // TODO: Unsure how universal these values are
 #define QEMU_GIC_INTNO_PPIO    16
@@ -111,7 +111,7 @@ int _gic_mask_reg(ptr_t base, int idx, uint32_t val, uint32_t bits)	{
 	DMAR32((base + ((idx / div) * 4)), reg);
 
 	// The bits we want to change
-	mask = ((1 << bits) - 1) << shift;
+	mask = ((1 << bits) - (uint32_t)1) << shift;
 
 	// Clear the bits fields we configure
 	reg &= ~(mask);
@@ -249,7 +249,7 @@ int gic_find_pending(void)	{
 int gic_register_cb(int irqno, gic_cb cb)	{
 	int idx = gic_struct.numcbs;
 	gic_struct.numcbs += 1;
-	gic_struct.callbacks = (struct irq_cb*)realloc(gic_struct.callbacks, sizeof(struct irq_cb) * gic_struct.numcbs);
+	gic_struct.callbacks = (struct irq_cb*)krealloc(gic_struct.callbacks, sizeof(struct irq_cb) * gic_struct.numcbs);
 
 	gic_struct.callbacks[idx].irqno = irqno;
 	gic_struct.callbacks[idx].cb = cb;
@@ -260,7 +260,7 @@ int gic_perform_cb(int irqno)	{
 	int i, res = -1;;
 	for(i = 0; i < gic_struct.numcbs; i++)	{
 		if(gic_struct.callbacks[i].irqno == irqno)	{
-			res = gic_struct.callbacks[i].cb();
+			res = gic_struct.callbacks[i].cb(irqno);
 			break;
 		}
 	}
@@ -317,3 +317,9 @@ int init_gicc(void)	{
 	return res;
 }
 cpucore_init(init_gicc);
+
+int gic_exit(void)	{
+	kfree(gic_struct.callbacks);
+	return OK;
+}
+poweroff_exit(gic_exit);

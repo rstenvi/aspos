@@ -1,7 +1,10 @@
 #ifndef __MMU_H
 #define __MMU_H
 
+#include "kernel.h"
 #include "aarch64.h"
+
+bool mmu_check_page_cloned(ptr_t vaddr, bool user, bool instr, bool write);
 
 static inline int vaddr2pgd(ptr_t vaddr)	{
 	if(ADDR_KERNEL(vaddr))	{

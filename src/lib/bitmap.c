@@ -8,18 +8,22 @@ static inline void set_bit(char* c, int num) { *c |= (1<<num); }
 static inline void clear_bit(char* c, int num) { *c &= ~(1<<num); }
 
 struct bm* bm_create(unsigned long bytes)	{
-	struct bm* bm = (struct bm*)malloc( sizeof(struct bm) );
+	TMALLOC(bm, struct bm);
 	if(PTR_IS_ERR(bm))	return bm;
-	void* b = (void*)malloc(bytes);
+	void* b = (void*)kmalloc(bytes);
 	if(PTR_IS_ERR(b))	{
-		free(bm);
+		kfree(bm);
 		return b;
 	}
 
 	bm_create_fixed(bm, (ptr_t)b, bytes);
 	return bm;
 }
-
+void bm_delete(struct bm* bm)	{
+	mutex_acquire(&bm->lock);
+	kfree(bm->bm);
+	kfree(bm);
+}
 int bm_create_fixed(struct bm* bm, ptr_t addr, unsigned long bytes)	{
 	bm->bytes = bytes;
 	bm->bm = (void*)addr;
@@ -91,6 +95,12 @@ void bm_clear(struct bm* bm, long idx)	{
 	mutex_acquire(&bm->lock);
 	clear_bit(&(b[idx / 8]), idx % 8);
 	mutex_release(&bm->lock);
+}
+void bm_clear_nums(struct bm* bm, long idx, int count)	{
+	int i;
+	for(i = 0; i < count; i++)	{
+		bm_clear(bm, idx + i);
+	}
 }
 
 void bm_set(struct bm* bm, int from, int to)	{

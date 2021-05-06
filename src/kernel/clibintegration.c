@@ -53,7 +53,8 @@ void* __sbrk(int increment, bool user, struct sbrk* brk)	{
 			);
 		}
 		else	{
-			vmmap_map_pages((ptr_t)brk->addr + (PAGE_SIZE * brk->mappedpages), missing);
+			ptr_t naddr = (ptr_t)brk->addr + (PAGE_SIZE * brk->mappedpages);
+			vmmap_map_pages(naddr, missing);
 		}
 		ptr_t rret = (ptr_t)(brk->addr) + brk->curroffset;
 		brk->curroffset += increment;
@@ -71,7 +72,9 @@ done:
 }
 
 void* _usbrk(int increment)	{
-	struct sbrk* brk = &(osdata.threads.proc.ubrk);
+	struct process* p = current_proc();
+	struct sbrk* brk = &(p->ubrk);
+	//struct sbrk* brk = &(osdata.threads.proc.ubrk);
 	return __sbrk(increment, true, brk);
 }
 
@@ -88,12 +91,17 @@ int _isatty(int fd)	{
 ssize_t _write(int fd, const void* buf, size_t count)	{
 	size_t i;
 	const char* b = (const char*)buf;
+	if(fd == STDOUT || fd == STDERR)	{
+		kern_write(buf, count);
+	}
+	/*
 	for(i = 0; i < count; i++)	{
 		if(fd == STDOUT || fd == STDERR)	{
-			osdata.kputc(b[i]);
+//			osdata.kputc(b[i]);
 		}
 	}
-	return i;
+	*/
+	return count;
 }
 
 

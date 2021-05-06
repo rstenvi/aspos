@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "picol.h"
+#include "lib.h"
 
 struct picolParser {
     char *text;
@@ -379,12 +380,12 @@ int picolEval(struct picolInterp *i, char *t) {
         }
         /* We have a new token, append to the previous or as new arg? */
         if (prevtype == PT_SEP || prevtype == PT_EOL) {
-            argv = realloc(argv, sizeof(char*)*(argc+1));
+            argv = krealloc(argv, sizeof(char*)*(argc+1));
             argv[argc] = t;
             argc++;
         } else { /* Interpolation */
             int oldlen = strlen(argv[argc-1]), tlen = strlen(t);
-            argv[argc-1] = realloc(argv[argc-1], oldlen+tlen+1);
+            argv[argc-1] = krealloc(argv[argc-1], oldlen+tlen+1);
             memcpy(argv[argc-1]+oldlen, t, tlen);
             argv[argc-1][oldlen+tlen]='\0';
             free(t);

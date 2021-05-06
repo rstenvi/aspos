@@ -31,6 +31,13 @@ SYSCALL put_char SYS_PUT_CHAR
 SYSCALL wait_tid SYS_WAIT_TID
 SYSCALL get_tid SYS_GET_TID
 SYSCALL fcntl   SYS_FCNTL
+SYSCALL fork    SYS_FORK
+
+/* SYSCALL proc_keepalive SYS_PROC_KEEPALIVE */
+SYSCALL conf_process   SYS_CONF_PROCESS
+
+SYSCALL mmap    SYS_MMAP
+SYSCALL munmap  SYS_MUNMAP
 
 .global __trunctfdf2
 __trunctfdf2:

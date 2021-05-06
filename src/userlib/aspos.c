@@ -23,7 +23,7 @@ int seek_write(int fd, void* buf, size_t len, size_t off)	{
 
 int cuse_mount(struct fs_struct* fs, const char* mnt, bool detach)	{
 	int fd;
-	fd = open("/dev/cuse", 0, 0);
+	fd = open("/dev/cuse", OPEN_FLAG_READ | OPEN_FLAG_CTRL, 0);
 	if(fd < 0)	{
 		printf("Unable to open /dev/cuse\n");
 		return fd;
@@ -45,4 +45,31 @@ int cuse_mount(struct fs_struct* fs, const char* mnt, bool detach)	{
 	}
 	return fd;
 }
+/*
+// Helper functions to list data in directort
+struct dir_state* flistdir(int fd)	{
+	TZALLOC(ret, struct dir_state);
+	// Should verify that fd is dir
+	// 
+}
 
+struct dir_state* listdir(const char* d)	{
+	int fd;
+	fd = open(d);
+	if(fd < 0)	return fd;
+
+	return flistdir(fd);
+}
+
+struct dir_entry* direnum(struct dir_state* s)	{
+	struct dir_entry* e;
+	if(s->offset + DIR_ENTRY_PRESIZE >= s->len)	return NULL;
+
+	e = (struct dir_entry*)(buf + s->offset);
+	s->offset += e->length;
+	return e;
+}
+void free_dirstate(struct dir_state* s)	{
+	free(s);
+}
+*/

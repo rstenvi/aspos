@@ -1,3 +1,6 @@
+UMODE := 1
+CFLAGS += -DUMODE=1
+
 include $(CROOT)/config.mk
 
 LDFLAGS += -L$(NEWLIBLOC)

@@ -24,6 +24,10 @@ struct tlist {
 	mutex_t lock;
 };
 
+int tlist_empty(struct tlist* list)	{
+	return (list->count == 0);
+}
+
 /**
 * Create new list where items are sorted based on the number of "ticks" they are
 * from the top.
@@ -32,14 +36,23 @@ struct tlist {
 *	The list head on success and NULL on failure.
 */
 struct tlist* tlist_new(void)	{
-	struct tlist* n = (struct tlist*)malloc(sizeof(struct tlist));
-	if(n == NULL)	return NULL;
+	TMALLOC(n, struct tlist);
+	if(PTR_IS_ERR(n))	return n;
 
 	n->count = 0;
 	n->first = NULL;
 
 	mutex_clear(&n->lock);
 	return n;
+}
+void tlist_delete(struct tlist* tl)	{
+	struct tlist_item* i = tl->first, *p;
+	while(i != NULL)	{
+		p = i;
+		i = i->next;
+		kfree(p);
+	}
+	kfree(tl);
 }
 
 /**
@@ -66,7 +79,7 @@ void* tlist_downtick(struct tlist* t)	{
 			ret = tt->data;
 			t->first = tt->next;
 			t->count--;
-			free(tt);
+			kfree(tt);
 		}
 	}
 	mutex_release(&t->lock);
@@ -92,7 +105,7 @@ void* tlist_more_zero(struct tlist* t)	{
 		ret = tt->data;
 		t->first = tt->next;
 		t->count--;
-		free(tt);
+		kfree(tt);
 	}
 	mutex_release(&t->lock);
 	return ret;
@@ -110,8 +123,8 @@ void* tlist_more_zero(struct tlist* t)	{
 * 	  :c:type:`OK` on success and :c:type:`MEMALLOC` on failure.
 */
 int tlist_add(struct tlist* t, void* data, int64_t ticks)	{
-	struct tlist_item* n = (struct tlist_item*)malloc(sizeof(struct tlist_item));
-	if(n == NULL)	return -(MEMALLOC);
+	TMALLOC(n, struct tlist_item);
+	if(PTR_IS_ERR(n))	return -(MEMALLOC);
 	
 	mutex_acquire(&t->lock);
 

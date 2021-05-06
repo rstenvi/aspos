@@ -61,7 +61,7 @@ _start:
 	/* 
 	* Set up vectortable, comes directly after .init section
 	*/
-	adr x1, IMAGE_INIT_END;
+	adr x1, start_vectortables;
 	mov x2, ARM64_VA_KERNEL_FIRST_ADDR
 	add x1, x1, x2
 	msr vbar_el1, x1
@@ -84,7 +84,6 @@ _start:
 	isb
 
 	mov x0, x9		/* .text load */
-	mov x1, #0x40000000
 	mov x1, x10
 #if ARM64_VA_BITS > 39
 	adr x2, kernel_pgd

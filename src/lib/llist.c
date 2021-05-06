@@ -2,19 +2,30 @@
 
 
 struct llist* llist_alloc(void)	{
-	struct llist* l = (struct llist*)malloc( sizeof(struct llist) );
-	if(l == NULL)	return ERR_ADDR_PTR(-1);
+	TMALLOC(l, struct llist);
+	if(PTR_IS_ERR(l))	return l;
 
 	l->head = NULL;
 	l->count = 0;
 	mutex_clear(&l->lock);
 	return l;
 }
+void llist_delete(struct llist* list)	{
+	struct llist_item* i, * p;
+	mutex_acquire(&list->lock);
+	i = list->head;
+	while(i != NULL)	{
+		p = i;
+		i = i->next;
+		kfree(p);
+	}
+	kfree(list);
+}
 
 int llist_insert(struct llist* list, void* item, long key)	{
-	struct llist_item* i = (struct llist_item*)malloc(sizeof(struct llist_item));
+	TMALLOC(i, struct llist_item);
 	struct llist_item* c = NULL, * p = NULL;
-	if(i == NULL)	return -MEMALLOC;
+	if(PTR_IS_ERR(i))	return -MEMALLOC;
 
 	mutex_acquire(&list->lock);
 
@@ -61,7 +72,7 @@ static void* _llist_find(struct llist* list, long key, bool remove)	{
 			else	{
 				p->next = i->next;
 			}
-			free(i);
+			kfree(i);
 			list->count--;
 		}
 	}
@@ -69,7 +80,7 @@ static void* _llist_find(struct llist* list, long key, bool remove)	{
 }
 
 void* llist_remove(struct llist* list, long key)	{
-	void* ret = (void*)-1;
+	void* ret = NULL;
 	mutex_acquire(&list->lock);
 	ret = _llist_find(list, key, true);
 	mutex_clear(&list->lock);
@@ -81,4 +92,35 @@ void* llist_find(struct llist* list, long key)	{
 	ret = _llist_find(list, key, false);
 	mutex_clear(&list->lock);
 	return ret;
+}
+void* llist_first(struct llist* list, bool remove, long* key)	{
+	void* ret = NULL;
+	struct llist_item* item;
+	mutex_acquire(&list->lock);
+	if(list->count > 0)	{
+		item = list->head;
+		ret = item->data;
+		if(key)	*key = item->key;
+		if(remove)	{
+			list->head = item->next;
+			list->count--;
+			kfree(item);
+		}
+	}
+	mutex_clear(&list->lock);
+	return ret;
+}
+void* llist_index(struct llist* list, int idx)	{
+	int i;
+	struct llist_item* item = list->head;
+	if(list->count < i)	return NULL;
+	for(i = 0; i < idx && item != NULL; i++)	{
+		item = item->next;
+	}
+	if(!item)	return NULL;
+	return (item->data);
+}
+
+bool llist_empty(struct llist* list)	{
+	return (list->head == NULL);
 }

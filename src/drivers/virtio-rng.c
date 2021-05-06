@@ -15,7 +15,7 @@
 struct rng_read {
 	void* uaddr;
 	size_t left, total;
-	int tid;
+	struct thread* thread;
 };
 
 /**
@@ -39,7 +39,7 @@ struct virtiorng_data {
 };
 
 
-struct virtio_dev_struct rngdev;
+static struct virtio_dev_struct rngdev = {0};
 
 static struct virtiorng_data* alloc_data_obj(void)	{
 	TMALLOC(ret, struct virtiorng_data);
@@ -54,6 +54,14 @@ static struct virtiorng_data* alloc_data_obj(void)	{
 	return ret;
 }
 
+static void destroy_data_obj(struct virtiorng_data* data)	{
+	if(PTR_IS_VALID(data))	{
+		xifo_delete(data->jobs);
+		ringbuf_delete(data->cache);
+		kfree(data);
+	}
+}
+
 static struct rng_read* alloc_read_job(void* uaddr, size_t total, size_t left)	{
 	TMALLOC(ret, struct rng_read);
 	ASSERT_VALID_PTR(ret);
@@ -61,7 +69,7 @@ static struct rng_read* alloc_read_job(void* uaddr, size_t total, size_t left)	{
 	ret->uaddr = uaddr;
 	ret->total = total;
 	ret->left = left;
-	ret->tid = current_tid();
+	ret->thread = current_thread();
 
 	return ret;
 }
@@ -72,7 +80,7 @@ int write_to_user(struct virtq_desc* desc, struct virtq_used_elem* elem, struct 
 	void* from = (void*)(desc->paddr + cpu_linear_offset());
 	size_t sz = MIN(job->left, elem->len);
 
-	memcpy_to_user(job->uaddr, from, sz);
+	mmu_memcpy(thread_get_user_pgd(job->thread), job->uaddr, from, sz);
 
 	job->left -= sz;
 	job->uaddr += sz;
@@ -106,13 +114,13 @@ int rng_read(struct vfsopen* o, void* buf, size_t sz)	{
 	xifo_push_back(data->jobs, (void*)job);
 
 	// Kick off read
-	virtq_add_buffer(dev, VIRTQ_RNG_READ_SIZE, VIRTQ_DESC_F_WRITE, 0, true);
+	virtq_add_buffer(dev, VIRTQ_RNG_READ_SIZE, VIRTQ_DESC_F_WRITE, 0, true, false);
 	DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
 
 	return -BLOCK_THREAD;
 }
 
-int virtio_rng_irq_cb(void)	{
+int virtio_rng_irq_cb(int irqno)	{
 	logd("IRQ rng\n");
 	struct virtio_dev_struct* dev = &rngdev;
 	struct virtq_used* u = virtq_get_used(dev, 0);
@@ -141,12 +149,12 @@ int virtio_rng_irq_cb(void)	{
 	// another one
 	else if(res == 0)	{
 		if(job->left)	{
-			virtq_add_buffer(dev, VIRTQ_RNG_READ_SIZE, VIRTQ_DESC_F_WRITE, 0, true);
+			virtq_add_buffer(dev, VIRTQ_RNG_READ_SIZE, VIRTQ_DESC_F_WRITE, 0, true, false);
 			DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
 		}
 		else	{
 			job = xifo_pop_front(data->jobs);
-			thread_wakeup(job->tid, job->total);
+			thread_wakeup(job->thread->id, job->total);
 		}
 	}
 	virtio_ack_intr(dev);
@@ -156,6 +164,8 @@ int virtio_rng_irq_cb(void)	{
 static struct fs_struct virtiorngdev = {
 	.name = "random",
 	.read = rng_read,
+	.open = vfs_empty_open,
+	.perm = ACL_PERM(ACL_READ, ACL_READ, ACL_READ),
 };
 
 
@@ -199,3 +209,11 @@ int virtio_rng_register(void)	{
 }
 
 early_hw_init(virtio_rng_register);
+
+int virtio_rng_exit(void)    {
+	if(rngdev.allocated)	{
+		destroy_data_obj(rngdev.state);
+	}
+    virtq_destroy_alloc(&rngdev);
+}
+poweroff_exit(virtio_rng_exit);

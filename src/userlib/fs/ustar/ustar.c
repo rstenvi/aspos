@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <fcntl.h>
+//#include <dirent.h>
 #include "ustar.h"
 #include "vfs.h"
 
@@ -14,18 +15,23 @@ static struct tar_meta* ustar_meta = NULL;
 */
 struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exact)	{
 	struct tar_entry* n = entry, *n2;
-	int len;
+	int len, count, i;
 	char* fname = (char*)*_name, *div;
+	bool found;
 	while((div = strstr(fname, "/")) != NULL)	{
 		len = div - fname;
 		if(strlen(div) == 1 && !exact)	goto end;
 		if(len > 1)	{
-			n2 = n->next;
-			while(n2 != NULL)	{
-				if(strlen(n2->name) == len && strncmp(fname, n2->name, len) == 0)	break;
-				n2 = n2->next;
+			count = xifo_count(n->childs);
+			found = false;
+			for(i = 0; i < count; i++)	{
+				n2 = (struct tar_entry*)xifo_item(n->childs, i);
+				if(strlen(n2->name) == len && strncmp(fname, n2->name, len) == 0)	{
+					found = true;
+					break;
+				}
 			}
-			if(n2 == NULL)	{
+			if(!found)	{
 				printf("Unable to find entry for '%s' (%i)\n", fname, len);
 				return NULL;
 			}
@@ -35,6 +41,21 @@ struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exac
 	}
 	if(exact)	{
 		len = strlen(fname);
+		count = xifo_count(n->childs);
+		found = false;
+		for(i = 0; i < count; i++)	{
+			n2 = (struct tar_entry*)xifo_item(n->childs, i);
+			if(strlen(n2->name) == len && strncmp(fname, n2->name, len) == 0)	{
+				found = true;
+				break;
+			}
+		}
+		if(!found)	{
+			printf("Unable to find entry for '%s' (%i)\n", fname, len);
+			return NULL;
+		}
+		n = n2;
+		/*
 		if(len > 0)	{
 			n2 = n->next;
 			while(n2 != NULL)	{
@@ -47,6 +68,7 @@ struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exac
 			}
 			n = n2;
 		}
+		*/
 	}
 end:
 	*_name = fname;
@@ -62,7 +84,7 @@ struct tar_entry* walk_path(struct tar_entry* entry, const char* _name)	{
 static int convert_tar_entry(struct raw_tar_entry* rawentry, struct tar_entry* entry)	{
 	int nlen;
 	nlen = strlen(rawentry->filename);
-	entry->name = (char*)malloc( nlen + 1 );
+	entry->name = (char*)kmalloc( nlen + 1 );
 	strcpy(entry->name, rawentry->filename);
 
 	entry->mode = strtol(rawentry->mode, OCTAL_END_CHAR, 8);
@@ -78,6 +100,7 @@ static struct tar_entry* alloc_tar_entry(struct raw_tar_entry* entry)	{
 	TZALLOC(ret, struct tar_entry);
 	if(PTR_IS_ERR(ret))	return ret;
 
+	ret->childs = xifo_alloc(5, 2);
 	convert_tar_entry(entry, ret);
 	return ret;
 }
@@ -107,9 +130,10 @@ static int add_tar_entry(struct tar_meta* meta, struct raw_tar_entry* entry, siz
 	}
 	n = alloc_tar_entry(entry);
 	n->start_meta = seek;
-	// Insert at beginning of list
-	n->next = n2->next;
-	n2->next = n;
+
+	xifo_push_back(n2->childs, (void*)n);
+//	n->next = n2->next;
+//	n2->next = n;
 
 	return 0;
 }
@@ -171,7 +195,7 @@ static int ustar_open(struct vfsopen* o, const char* n, int flags, int mode)	{
 	struct tar_meta* meta;
 	int res = OK, len = strlen(n);
 	char** _n, *relname;
-	char* path = malloc(len + 1), *_path;
+	char* path = kmalloc(len + 1), *_path;
 	_path = path;
 	strcpy(path, n);
 	normalize_path(path);
@@ -191,7 +215,7 @@ static int ustar_open(struct vfsopen* o, const char* n, int flags, int mode)	{
 #if defined(linux)
 	printf("open: '%s' -> '%s'\n", n, e->name);
 #else
-	f = (struct tar_file_open*)malloc( sizeof(struct tar_file_open) );
+	f = (struct tar_file_open*)kmalloc( sizeof(struct tar_file_open) );
 	if(PTR_IS_ERR(f))	{
 		res = -MEMALLOC;
 		goto err1;
@@ -203,8 +227,44 @@ static int ustar_open(struct vfsopen* o, const char* n, int flags, int mode)	{
 #endif
 
 err1:
-	free(_path);
+	kfree(_path);
 	return res;
+}
+
+static int _ustar_read_file(struct tar_file_open* f, void* buf, size_t max)	{
+	int seek, res, r;
+	seek = f->entry->start_meta;
+	seek += (TAR_ENTRY_SIZE / f->meta->blksize);
+	r = MIN(f->entry->size, max);
+	res = seek_read(f->meta->blockfd, buf, r, seek);
+	return res;
+}
+
+static int _ustar_read_dir(struct tar_file_open* f, void* buf, size_t max)	{
+	struct dir_entry dir = {0};
+	int seek, res, r, i;
+	struct tar_entry* e = f->entry, * n;
+	void* nbuf = buf;
+	int count;
+	count = xifo_count(e->childs);
+	for(i = 0; i < count; i++)	{
+		n = (struct tar_entry*)xifo_item(e->childs, i);
+		dir.type = e->type;
+		dir.filesz = e->size;
+		dir.length = DIR_ENTRY_PRESIZE + strlen(n->name) + 1;
+		if(dir.length > max)	{
+			memcpy(nbuf, &dir, DIR_ENTRY_PRESIZE);
+			strcpy(nbuf + DIR_ENTRY_PRESIZE, n->name);
+			max -= dir.length;
+			nbuf += dir.length;
+		}
+		else	{
+			// In this instance, the user must allocate a larger buffer and try
+			// again
+			return -SPACE_FULL;
+		}
+	}
+	return (nbuf - buf);
 }
 
 static int ustar_read(struct vfsopen* o, void* buf, size_t max)	{
@@ -212,17 +272,18 @@ static int ustar_read(struct vfsopen* o, void* buf, size_t max)	{
 	GET_VFS_DATA(o, struct tar_file_open, f);
 	if(PTR_IS_ERR(f))	return -1;
 
-	seek = f->entry->start_meta;
-	seek += (TAR_ENTRY_SIZE / f->meta->blksize);
-
-	r = MIN(f->entry->size, max);
-
-#if defined(linux)
-	lseek(f->meta->blockfd, seek, SEEK_SET);
-	res = read(f->meta->blockfd, buf, r);
-#else
-	res = seek_read(f->meta->blockfd, buf, r, seek);
-#endif
+	switch(f->entry->type)	{
+	case TYPE_REG:
+		res = _ustar_read_file(f, buf, max);
+		break;
+	case TYPE_DIR:
+		res = _ustar_read_dir(f, buf, max);
+		break;
+	default:
+		printf("Don't know how to read type %i\n", f->entry->type);
+		res = -1;
+		break;
+	}
 	return res;
 }
 static int ustar_write(struct vfsopen* o, const void* buf, size_t max)	{
@@ -232,7 +293,7 @@ static int ustar_write(struct vfsopen* o, const void* buf, size_t max)	{
 static int ustar_close(struct vfsopen* o)	{
 	GET_VFS_DATA(o, struct tar_file_open, f);
 	if(!PTR_IS_ERR(f))	{
-		free(f);
+		kfree(f);
 	}
 	return 0;
 }
@@ -243,6 +304,7 @@ static struct fs_struct ustar_fs = {
 	.read = ustar_read,
 	.write = ustar_write,
 	.close = ustar_close,
+	.perm = ACL_PERM(ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE, ACL_READ|ACL_WRITE),
 };
 
 
@@ -278,7 +340,7 @@ struct tar_meta* mount_ustar(int fd)	{
 	}
 	return meta;
 err1:
-	free(meta);
+	kfree(meta);
 err0:
 	return ERR_ADDR_PTR((ptr_t)res);
 }
