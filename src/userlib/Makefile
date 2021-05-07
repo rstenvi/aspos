@@ -38,6 +38,9 @@ all: $(OBJ) drivers lwip ustar $(SOBJ)
 DEPS := $(OBJ:.o=.d)
 -include $(DEPS)
 
+SDEPS := $(SOBJ:.o=.d)
+-include $(SDEPS)
+
 drivers:
 	make -C drivers
 lwip:
