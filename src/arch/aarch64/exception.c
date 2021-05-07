@@ -4,7 +4,7 @@
 #include "vfs.h"
 #include "syscalls.h"
 
-static int abortcount = 0;
+//static int abortcount = 0;
 typedef int (*handle_exc)(struct exception*);
 
 static void check_wakeup_cpus(void)	{
@@ -305,12 +305,16 @@ static int handle_sync(struct exception* exc)	{
 }
 
 static int exc_unknown(struct exception* exc)	{
-	uart_early_putc('Y');
+//	uart_early_putc('Y');
 	while(1);
 }
 
 void exception_handler(struct exception* exc)	{
 	int ret;
+#if defined(CONFIG_ARCH_FAST_THREAD_ACCESS)
+	ptr_t _t = (ptr_t)current_thread_memory();
+	asm("msr sp_el0, %0" : : "r"(_t));
+#endif
 	handle_exc func = exc_unknown;
 	switch(exc->type)	{
 		case AARCH64_EXC_IRQ_AARCH64:
@@ -335,7 +339,7 @@ void exception_handler(struct exception* exc)	{
 		case AARCH64_EXC_FIQ_AARCH32: 
 		case AARCH64_EXC_SERR_AARCH32:
 		default:
-			uart_early_putc('X');
+//			uart_early_putc('X');
 			while(1);
 			break;
 	}

@@ -7,6 +7,13 @@ log_level:
     lot of debug information. 1 (info) is sensible during normal development,
     while 2 (warning) or 3 (error) is meant for production. Fatal errors (4) are
     always logged.
+simple_log_format:
+  type: bool
+  default: true
+  help:
+    Use a simple logging format which doesn't include file / function
+    information. This saves several memory loads per instruction and it reduces
+    the size of the image.
 driver_userid_auto_increment:
   type: bool
   default: false
@@ -16,6 +23,8 @@ driver_userid_auto_increment:
 support_users:
   type: bool
   default: false
+  depends:
+    - multi_process: true
   help:
     Associate each process with a user / group id.
 support_syscall_filter:
@@ -98,11 +107,12 @@ timer_ms_delay:
 
 early_uart:
   type: bool
-  default: true
+  default: false
+  constraint: "not {{value}}"
   help:
     Early UART is used to print debug information before the system for drivers
-    have been fully set up. Currently, early uart is the method for printing
-    information, so it should be enabled.
+    have been fully set up. Have been disabled until better solution is
+    implemented.
 
 exit_as_poweroff:
   type: bool

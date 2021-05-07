@@ -8,7 +8,7 @@
 #include <stdarg.h>
 
 #ifndef CONFIG_LOG_LEVEL
-	#define CONFIG_LOG_LEVEL 0
+# define CONFIG_LOG_LEVEL 0
 #endif
 
 extern struct os_data osdata;
@@ -25,44 +25,56 @@ extern struct os_data osdata;
 * 4. :c:macro:`loge`
 * 5. :c:macro:`fatal`
 */
-#define kwrite(s) osdata.kputs(s)
+#define kwrite(s) puts(s)
 #define kprintf(fmt, ...) osdata.printk(fmt, ##__VA_ARGS__)
 #if defined(UMODE)
 #define klog(level,fmt,...) dprintf(2, fmt, ##__VA_ARGS__)
 #else
-#define klog(level,fmt,...) \
-	mutex_acquire(cpu_loglock()); \
-	osdata.printk("%s|%s|%s|", level,__FILE__,__func__); \
-	osdata.printk(fmt, ##__VA_ARGS__); \
-	mutex_release(cpu_loglock())
+# if defined(CONFIG_SIMPLE_LOG_FORMAT)
+void klog(char* fmt, ...);
+# else
+void klog(const char* lvl, const char* file, const char* func, char* fmt, ...);
+# endif
 #endif
 
 #if CONFIG_LOG_LEVEL==0
-	/** Log debug information. */
-	#define logd(fmt, ...) klog("debug", fmt, ##__VA_ARGS__)
+# if defined(CONFIG_SIMPLE_LOG_FORMAT)
+	#define logd(fmt, ...) klog(fmt, ##__VA_ARGS__)
+# else
+	#define logd(fmt, ...) klog("debug", __FILE__, __func__, fmt, ##__VA_ARGS__)
+# endif
 #else
-	#define logd(fmt, ...) asm("nop")
+	#define logd(fmt, ...)
 #endif
 
 #if CONFIG_LOG_LEVEL<=1
-	/** Log information. */
-	#define logi(fmt, ...) klog("info ", fmt, ##__VA_ARGS__)
+# if defined(CONFIG_SIMPLE_LOG_FORMAT)
+	#define logi(fmt, ...) klog(fmt, ##__VA_ARGS__)
+# else
+	#define logi(fmt, ...) klog("info ", __FILE__, __func__, fmt, ##__VA_ARGS__)
+# endif
 #else
-	#define logi(fmt, ...) asm("nop")
+	#define logi(fmt, ...)
 #endif
 
 #if CONFIG_LOG_LEVEL<=2
-	/** Log warning. */
-	#define logw(fmt, ...) klog("warn ", fmt, ##__VA_ARGS__)
+# if defined(CONFIG_SIMPLE_LOG_FORMAT)
+	#define logw(fmt, ...) klog(fmt, ##__VA_ARGS__)
+# else
+	#define logw(fmt, ...) klog("warn ", __FILE__, __func__, fmt, ##__VA_ARGS__)
+# endif
 #else
-	#define logw(fmt, ...) asm("nop")
+	#define logw(fmt, ...)
 #endif
 
 #if CONFIG_LOG_LEVEL<=3
-	/** Log error. */
-	#define loge(fmt, ...) klog("err  ", fmt, ##__VA_ARGS__)
+# if defined(CONFIG_SIMPLE_LOG_FORMAT)
+	#define loge(fmt, ...) klog(fmt, ##__VA_ARGS__)
+# else
+	#define loge(fmt, ...) klog("err  ", __FILE__, __func__, fmt, ##__VA_ARGS__)
+# endif
 #else
-	#define loge(fmt, ...) asm("nop")
+	#define loge(fmt, ...)
 #endif
 
 

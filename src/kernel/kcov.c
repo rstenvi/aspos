@@ -2,29 +2,23 @@
 
 #define KCOV_DATA_SIZE_BYTES(data) ((data->maxcount * sizeof(ptr_t)) + sizeof(struct kcov_data))
 
-
 void __sanitizer_cov_trace_pc(void)	{
 	ptr_t pc = (ptr_t)__builtin_return_address(0);
 
 	struct kcov_data* data;
 	struct kcov* kcov = get_current_kcov();
-	if(PTR_IS_ERR(kcov))	return;
-	if(!(kcov->enabled))	return;
+	if(PTR_IS_ERR(kcov) ||
+		PTR_IS_ERR(READ_ONCE(kcov->data)) ||
+		!READ_ONCE(kcov->enabled))		return;
 
 	data = kcov->data;
-	uint16_t ccount, mcount;
+	uint32_t ccount, mcount;
 
-
-	mutex_acquire_user(&data->lock);
-	ccount = get_user_u16(&data->currcount);
-	mcount = get_user_u16(&data->maxcount);
-	if(ccount < mcount)	{
-		uint64_t* entry = &(data->entries[ccount]);
+	ccount = atomic_inc_fetch_user32(&data->currcount);
+	if(ccount <= READ_ONCE(kcov->allocated))	{
+		uint64_t* entry = &(data->entries[ccount-1]);
 		put_user_u64(entry, pc);
-		ccount++;
-		put_user_u16(&data->currcount, ccount);
 	}
-	mutex_release_user(&data->lock);
 }
 
 int kcov_open(struct vfsopen* o, const char* name, int flags, int mode)	{
@@ -35,9 +29,13 @@ static int _kcov_init(struct vfsopen* o)	{
 	TZALLOC_ERR(kcov, struct kcov);
 	struct kcov_data* data;
 
-	kcov->enabled = false;
+	/*
+	* Should already be zero after calling tzalloc
+	*/
+	WRITE_ONCE(kcov->enabled, false);
+	WRITE_ONCE(kcov->data, NULL);
+	WRITE_ONCE(kcov->allocated, 0);
 
-	kcov->data = NULL;
 	set_current_kcov(kcov);
 	SET_VFS_DATA(o, kcov);
 
@@ -50,7 +48,12 @@ static inline int _kcov_set_status(bool value)	{
 	if(PTR_IS_ERR(kcov))		return -USER_FAULT;
 	if(PTR_IS_ERR(kcov->data))	return -USER_FAULT;
 
-	kcov->enabled = value;
+	// Writing to data->maxcolunt serves as enabling/disabling for user-mode
+	uint32_t entries = (value) ? READ_ONCE(kcov->allocated) : 0;
+
+	WRITE_ONCE(kcov->enabled, value);
+	put_user_u32(&(kcov->data->maxcount), entries);
+
 	return OK;
 }
 
@@ -94,10 +97,15 @@ int kcov_mmap(struct vfsopen* o, void* addr, size_t length)	{
 
 	uint16_t entries = (length - sizeof(struct kcov_data)) / sizeof(ptr_t);
 	data = (struct kcov_data*)addr;
-	put_user_u16(&(data->maxcount), entries);
-	put_user_u16(&(data->currcount), 0);
+	WRITE_ONCE(kcov->allocated, entries);
+
+	// Set currcount and maxcount to 0
+	put_user_u64((uint64_t*)data, 0);
 
 	kcov->data = data;
+
+	// Writing of this value will allow user-mode to start writing entries
+	put_user_u32(&(data->maxcount), entries);
 	return OK;
 }
 

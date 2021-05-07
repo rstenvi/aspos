@@ -44,7 +44,6 @@ int pmm_init()	{
 
 	stat_set_phys_pages(pmm->pages);
 	stat_add_taken_pages(bm_blocks);
-	logd("Stored bitmap @ %p\n", pmm->bitmap);
 	return 0;	
 }
 int pmm_ref(ptr_t page)	{
@@ -67,7 +66,6 @@ int pmm_add_ref(ptr_t page)	{
 }
 int pmm_free(ptr_t page)	{
 	int res = -1;
-	logd("Freeing page 0x%lx\n", page);
 	struct pmm* pmm = cpu_get_pmm();
 	ptr_t idx = (page - pmm->start) / PAGE_SIZE;
 
@@ -101,7 +99,6 @@ error:
 	PANIC("Unable to find physical page, must do paging");
 done:
 	mutex_release(&pmm->lock);
-//	logd("pmm alloc page: %lx\n", ret);
 	return ret;
 }
 
@@ -109,7 +106,6 @@ int pmm_mark_mem(ptr_t start, ptr_t end)	{
 	struct pmm* pmm = cpu_get_pmm();
 	ALIGN_DOWN_POW2(start, PAGE_SIZE);
 	ALIGN_UP_POW2(end, PAGE_SIZE);
-	logd("Marking memory 0x%lx -> 0x%lx\n", start, end);
 
 	ASSERT_TRUE(start < end, "End is lower than start");
 

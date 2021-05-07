@@ -5,11 +5,11 @@
 */
 void panic(const char* msg, const char* file, int line) {
 	// We always want to reliably print some type of message
-	osdata.kputs(msg);
-	osdata.kputs("\n");
+	puts(msg);
+	puts("\n");
 
 	// We then try and print some details about environment
-	osdata.printk("Location: %s:%i\n", file, line);
+	printf("Location: %s:%i\n", file, line);
 	arch_dump_regs();
 	while(1);
 }

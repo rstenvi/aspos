@@ -106,12 +106,13 @@ ssize_t _write(int fd, const void* buf, size_t count)	{
 
 
 ssize_t _read(int fd, void* buf, size_t count)	{
+	PANIC("_read");
 	size_t i = 0;
 	char* tmp = (char*)buf;
 	if(fd <= 2)	{
 		for(i = 0; i < count; i++)	{
 			if(fd == STDIN)	{
-				tmp[i] = (char)(osdata.kgetc());
+//				tmp[i] = (char)(osdata.kgetc());
 			}
 		}
 	}

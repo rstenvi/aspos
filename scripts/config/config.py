@@ -7,6 +7,8 @@ import argparse
 import random
 import math
 
+from pprint import pprint
+
 YAML_CONFIG = "kconfig.yaml"
 FINAL_CONFIG = "src/include/config.h"
 
@@ -41,6 +43,27 @@ def get_configs(fname):
 
 	ret = simplify_configs(ret)
 	return ret
+
+def _check_is_set(obj, checks, cname):
+	#print("Checking {} in {}".format(checks, cname))
+	for k, val in checks.items():
+		if k not in obj:
+			print("Dependency on '{}' which doesn't exist".format(k))
+			return False
+		if obj.get(k).get("value") != val:
+			print("{} needs to be '{}' for '{}' to be valid".format(k, val, cname))
+			return False
+	return True
+
+def fix_dependencies(obj):
+	for key, val in obj.items():
+		# depends is only implemented for true/false values
+		if val.get("value") == True:
+			_c = val.get("depends", [])
+			for c in _c:
+				if _check_is_set(obj, c, key) is False:
+					return False
+	return True
 
 
 def check_constraints(obj):
@@ -228,7 +251,11 @@ def checkvalid():
 	for key, val in config.items():
 		if key in realconfig:
 			config[key]["value"] = realconfig[key]
-	
+
+	if fix_dependencies(config) is False:
+		print("Config has unmet dependencies")
+		sys.exit(1)
+
 	if check_constraints(config) is False:
 		print("Config was not valid :(")
 		sys.exit(1)

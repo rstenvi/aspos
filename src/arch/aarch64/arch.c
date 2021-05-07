@@ -150,145 +150,72 @@ int arch_thread_set_exit(void* sp, ptr_t addr)	{
 
 size_t strlen_user(const char* src)	{
 	size_t res = 0;
-#if PAN_ENABLED
 	pan_disable();
-#endif
 	res = strlen(src);
-#if PAN_ENABLED
 	pan_enable();
-#endif
 	return res;
 }
-uint8_t get_user_u8(uint8_t* addr)	{
-	uint8_t val;
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	val = *addr;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return val;
+
+
+#define ATOMIC_FETCH_INC_USER(size) \
+uint##size atomic_inc_fetch_user##size(uint##size *addr) {\
+	uint##size res; \
+	pan_disable(); \
+	res = atomic_inc_fetch##size(addr); \
+	pan_enable(); \
+	return res; \
 }
-uint16_t get_user_u16(uint16_t* addr)	{
-	uint16_t val;
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	val = *addr;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return val;
+
+ATOMIC_FETCH_INC_USER(8)
+ATOMIC_FETCH_INC_USER(16)
+ATOMIC_FETCH_INC_USER(32)
+ATOMIC_FETCH_INC_USER(64)
+
+#define _GET_USER(size) \
+uint##size get_user_u##size(uint##size *addr)	{\
+	ASSERT_USER(addr);\
+	uint##size ret;\
+	pan_disable();\
+	ret = READ_ONCE(*addr);\
+	pan_enable();\
+	return ret;\
 }
-uint32_t get_user_u32(uint32_t* addr)	{
-	uint32_t val;
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	val = *addr;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return val;
-}
-uint64_t get_user_u64(uint64_t* addr)	{
-	uint64_t val;
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	val = *addr;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-	return val;
-}
+
+_GET_USER(8)
+_GET_USER(16)
+_GET_USER(32)
+_GET_USER(64)
+
 
 void mutex_acquire_user(mutex_t* lock)	{
 	if(!ADDR_USER(lock))	{
 		PANIC("expected kernel mode address\n");
 	}
-#if PAN_ENABLED
 	pan_disable();
-#endif
 	mutex_acquire(lock);
-#if PAN_ENABLED
 	pan_enable();
-#endif
 }
 void mutex_release_user(mutex_t* lock)	{
 	if(!ADDR_USER(lock))	{
 		PANIC("expected kernel mode address\n");
 	}
-#if PAN_ENABLED
 	pan_disable();
-#endif
 	mutex_release(lock);
-#if PAN_ENABLED
 	pan_enable();
-#endif
 }
 
-void put_user_u8(unsigned char* addr, unsigned char val)	{
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	*addr = val;
-#if PAN_ENABLED
-	pan_enable();
-#endif
+#define _PUT_USER(size) \
+void put_user_u##size(uint##size *addr, uint##size val)	{\
+	ASSERT_USER(addr);\
+	pan_disable();\
+	WRITE_ONCE(*addr, val);\
+	pan_enable();\
 }
-void put_user_u16(uint16_t* addr, uint16_t val)	{
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	*addr = val;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-}
-void put_user_u32(uint32_t* addr, uint32_t val)	{
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	*addr = val;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-}
-void put_user_u64(uint64_t* addr, uint64_t val)	{
-	if(!ADDR_USER(addr))	{
-		PANIC("expected kernel mode address\n");
-	}
-#if PAN_ENABLED
-	pan_disable();
-#endif
-	*addr = val;
-#if PAN_ENABLED
-	pan_enable();
-#endif
-}
+
+_PUT_USER(8);
+_PUT_USER(16);
+_PUT_USER(32);
+_PUT_USER(64);
 
 char* strdup_user(const char* src)	{
 	if(!ADDR_USER(src))	return NULL;

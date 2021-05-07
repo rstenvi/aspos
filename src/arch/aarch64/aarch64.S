@@ -63,15 +63,15 @@ pan_enabled:
 
 	ret
 
-.global pan_disable
-pan_disable:
+.global _pan_disable
+_pan_disable:
 	mov x0, xzr
 	/* msr pan, #0 */
 	ALT_INSTR 0xd500409f, CPU_FEATURE_PAN
 	ret
 
-.global pan_enable
-pan_enable:
+.global _pan_enable
+_pan_enable:
 	mov x0, xzr
 	/* msr pan, #1 */
 	ALT_INSTR 0xd500419f, CPU_FEATURE_PAN

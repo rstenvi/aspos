@@ -18,3 +18,7 @@ aarch64_pan:
   default: false
   help:
     Enable Privileged Access Never (PAN).
+
+arch_supports_fast_thread_access:
+  type: bool
+  default: true

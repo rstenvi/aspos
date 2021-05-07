@@ -939,7 +939,8 @@ int thread_create_driver_thread(struct thread_fd_open* fdo, ptr_t entry, int sys
 
 #if defined(CONFIG_KCOV)
 	// We want to track the caller kcov
-	t->tinfo.caller_kcov = get_current_kcov();
+	struct kcov* k = get_current_kcov();
+	if(PTR_IS_VALID(k))	t->tinfo.caller_kcov = k->data;
 #endif
 
     // Add the necessary arguments

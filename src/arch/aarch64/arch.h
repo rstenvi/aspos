@@ -92,6 +92,11 @@ uint16_t get_user_u16(uint16_t* addr);
 uint32_t get_user_u32(uint32_t* addr);
 uint64_t get_user_u64(uint64_t* addr);
 
+uint8_t atomic_inc_fetch_user8(uint8_t *addr);
+uint16_t atomic_inc_fetch_user16(uint16_t *addr);
+uint32_t atomic_inc_fetch_user32(uint32_t *addr);
+uint64_t atomic_inc_fetch_user64(uint64_t *addr);
+
 void arch_dump_regs(void);
 
 ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool user);
@@ -126,11 +131,27 @@ size_t strlen_user(const char* src);
 void free_user(char* src);
 void cpu_reset(void);
 
-bool pan_enable(void);
-bool pan_disable(void);
+__always_inline static inline bool pan_enable(void)	{
+#if PAN_ENABLED
+	return _pan_enable();
+#endif
+}
+__always_inline static inline bool pan_disable(void)	{
+#if PAN_ENABLED
+	return _pan_disable();
+#endif
+}
 bool pan_supported(void);
 
-static inline int cpu_id(void)	{ return (int)(read_mpidr_el1() & 0xff); }
+__always_inline static inline int cpu_id(void)	{ return (int)(read_mpidr_el1() & 0xff); }
+
+#if defined(CONFIG_ARCH_FAST_THREAD_ACCESS)
+__always_inline static inline struct thread* arch_current_thread(void)	{
+	ptr_t out;
+	asm("mrs %0, sp_el0" : "=r"(out));
+	return (struct thread*)out;
+}
+#endif
 
 static inline void halt() { asm volatile("wfi"); }
 
@@ -158,5 +179,18 @@ static inline void arch_set_upgd(ptr_t pgd)	{
 }
 
 void flush_tlb(void);
+
+__force_inline static inline void arch_smp_mb(void)	{
+#ifdef CONFIG_SMP
+	dsb();
+#endif
+}
+
+__force_inline static inline void arch_smp_mbr(void)	{
+	arch_smp_mb();
+}
+__force_inline static inline void arch_smp_mbw(void)	{
+	arch_smp_mb();
+}
 
 #endif

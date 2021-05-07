@@ -106,7 +106,7 @@ static struct uart_struct uart;
 
 static volatile uint8_t uartlock = 0;
 
-//#if defined(CONFIG_EARLY_UART)
+#if defined(CONFIG_EARLY_UART)
 static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
 static bool poll_have_rx_data()	{
 	uint32_t r = 0;
@@ -128,18 +128,18 @@ int uart_early_getc(void)	{
 	return (r & 0xff);
 }
 
+
+int uart_early_write(const char* str)	{
+	while(*str != 0x00)	uart_early_putc(*str++);
+}
+#endif
+
 int uart_early_init()	{
 	uart.base = UART_BASE;
 	mutex_clear(&uartlock);
 //	int r = _init_pl011(uart.base, TMP_BAUD, TMP_CLOCKFREQ);
 	return 0;
 }
-
-int uart_early_write(const char* str)	{
-	while(*str != 0x00)	uart_early_putc(*str++);
-}
-//#endif
-
 static void pl011_flush(ptr_t base)	{
 	// TODO: Implement
 }

@@ -1,0 +1,8 @@
+arch_fast_thread_access:
+  type: bool
+  default: true
+  depends:
+    - arch_supports_fast_thread_access: true
+  help:
+    Enable fast thread access by storing address in some register. The
+    architecture must find an appropriate register to use.

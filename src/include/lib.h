@@ -309,13 +309,13 @@ int close(int fd);
 
 
 struct kcov_data {
-	mutex_t lock;
-	uint16_t maxcount, currcount;
+	uint32_t maxcount, currcount;
 	ptr_t entries[0];
 };
 
 struct kcov {
     bool enabled;
+	uint32_t allocated;
     struct kcov_data* data;
 };
 
@@ -464,7 +464,7 @@ int init_ustart(const char* mnt, int blockfd);
 struct user_thread_info {
 	tid_t id;
 #if defined(CONFIG_KCOV)
-	struct kcov* caller_kcov;
+	struct kcov_data* caller_kcov;
 #endif
 };
 
@@ -472,7 +472,7 @@ struct user_thread_info {
 # if CONFIG_USER_THREAD_INFO
 extern struct user_thread_info threadinfo;
 # endif
-static inline struct kcov* get_current_kcov(void) {
+static inline struct kcov_data* get_current_kcov(void) {
 # if CONFIG_USER_THREAD_INFO
 	return threadinfo.caller_kcov;
 # else

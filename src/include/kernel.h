@@ -19,40 +19,19 @@
 #include "drivers.h"
 #include "vfs.h"
 #include "kasan.h"
+#include "memory.h"
 
-
-#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
-#define READ_ONCE(x) ({ typeof(x) ___x = ACCESS_ONCE(x); ___x; })
-#define WRITE_ONCE(x, val) do { ACCESS_ONCE(x) = (val); } while (0)
-#define barrier() __asm__ __volatile__("": : :"memory")
-
-
-#define __noreturn __attribute__((noreturn))
-
+/*
 #define THREAD_STACK_BOTTOM(tid) \
 	(ARM64_VA_THREAD_STACKS_START + (PAGE_SIZE * (CONFIG_THREAD_STACK_BLOCKS * ntid)))
 #define THREAD_STACK_TOP(tid) \
 	(THREAD_STACK_BOTTOM(tid) + (CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE))
+*/
 
 // kstart.c
 extern struct os_data osdata;
 
 void panic(const char*, const char*, int);
-
-
-typedef int (*kputc_t)(char);
-typedef int (*kgetc_t)(void);
-typedef int (*kputs_t)(const char*);
-typedef int (*kputc_t)(char);
-typedef int (*printf_t)(const char*, ...);
-
-
-#define __UNIQUE_ID(prefix,line) prefix##line
-#define _UNIQUE_ID(prefix,line) __UNIQUE_ID(prefix,line)
-
-typedef uint32_t ipv4_t;
-typedef uint16_t tid_t;
-typedef uint64_t ptr_t;
 
 #define VMMAP_FLAG_NONE        (0)
 #define VMMAP_FLAG_LAZY_ALLOC  (1 << 0)
@@ -394,6 +373,11 @@ struct cpu {
 	rcu_t in_rcu;
 	struct rcu_wait_free waitfree;
 #endif
+
+
+#if CONFIG_COLLECT_STATS > 0
+	struct stats stats;
+#endif
 };
 
 typedef int (*cpu_on_t)(int,ptr_t);
@@ -439,12 +423,12 @@ struct os_data {
 	*/
 	void* dtb;
 	struct dtb_node* dtbroot;
+#if defined(CONFIG_EARLY_UART)
 	kputs_t kputs;
 	kputc_t kputc;
-
 	kgetc_t kgetc;
 	printf_t printk;
-
+#endif
 
 	ptr_t kernel_start,
 	kernel_end;
@@ -462,9 +446,6 @@ struct os_data {
 	struct vmmap vmmap;
 	
 	struct sbrk kernbrk;
-#if CONFIG_COLLECT_STATS > 0
-	struct stats stats;
-#endif
 
 	struct cpus cpus;
 
@@ -475,17 +456,60 @@ struct os_data {
 	mutex_t loglock;
 };
 
+/*
+* Various inline function which gets data directly from osdata struct
+*/
+static inline struct cpu* curr_cpu() { return &(osdata.cpus.cpus[cpu_id()]); }
 static inline struct threads* cpu_get_threads() { return &(osdata.threads); }
+__force_inline static inline mutex_t* cpu_loglock() { return &(osdata.loglock); }
+static inline struct dtb_node* cpu_get_parsed_dtb() { return osdata.dtbroot; }
+static inline struct pmm* cpu_get_pmm() { return &(osdata.pmm); }
+static inline struct sbrk* cpu_get_kernbrk() { return &(osdata.kernbrk); }
+static inline void* cpu_get_dtb() { return osdata.dtb; }
+static inline ptr_t cpu_get_pgd() { return osdata.kpgd; }
+static inline ptr_t cpu_linear_offset() { return osdata.linear_offset; }
+static inline struct vmmap* cpu_get_vmmap() { return &(osdata.vmmap); }
 
+
+
+
+
+/*
+* Retrieve current thread-struct. Architecture can configure fastpath for
+* accessing thread-struct, so all access to thread-struct should be done by
+* using `current_thread`
+*/
+static inline struct thread* current_thread_memory(void)	{
+	return curr_cpu()->running;
+}
+
+#if defined(CONFIG_ARCH_FAST_THREAD_ACCESS)
+static inline struct thread* current_thread(void)	{
+	return arch_current_thread();
+}
+#else
+static inline struct thread* current_thread(void)	{
+	return current_thread_memory();
+}
+#endif
+
+static inline int current_tid(void) {
+	struct thread* t = current_thread();
+	return PTR_IS_VALID(t) ? t->id : -1;
+}
+
+
+/*
+* Retrieve current process
+*/
 #if defined(CONFIG_MULTI_PROCESS)
 static inline struct process* current_proc()	{
-	struct thread* t = osdata.cpus.cpus[cpu_id()].running;
-//	ASSERT_VALID_PTR(t);
-//	ASSERT_VALID_PTR(t->owner);
-	return (t) ? t->owner : NULL;
+	struct thread* t = current_thread();
+	return PTR_IS_VALID(t) ? t->owner : NULL;
 }
 static inline pid_t current_pid()	{
-	return osdata.cpus.cpus[cpu_id()].running->owner->pid;
+	struct thread* t = current_thread();
+	return (PTR_IS_VALID(t) && PTR_IS_VALID(t->owner)) ? t->owner->pid : -1;
 }
 static inline pid_t pid_unique()	{
 	struct threads* allt = cpu_get_threads();
@@ -494,8 +518,7 @@ static inline pid_t pid_unique()	{
 }
 static inline void set_thread_owner(struct thread* t)	{
 	t->owner = current_proc();
-	ASSERT_VALID_PTR(t->owner);
-	t->owner->num_threads++;
+	if(PTR_IS_VALID(t->owner))	t->owner->num_threads++;
 }
 #else
 static inline struct process* current_proc()	{
@@ -509,26 +532,29 @@ static inline void set_thread_owner(struct thread* t) { }
 #endif
 
 
+// 
 static inline int fileid_unique(void)	{
 	struct process* p = current_proc();
-	mutex_acquire(&p->lock);
+	ASSERT_VALID_PTR(p);
+	//mutex_acquire(&p->lock);
 	int r = bm_get_first(p->fileids);
-	mutex_release(&p->lock);
+	//mutex_release(&p->lock);
 	return r;
 }
+
 static inline void fileid_free(int id)	{
 	struct process* p = current_proc();
+	ASSERT_VALID_PTR(p);
 	bm_clear(p->fileids, id);
 }
 
 
-
 // --------------------- Various stats functions ----------------------------- //
 #if CONFIG_COLLECT_STATS > 0
-static inline void stat_set_phys_pages(ptr_t p) { osdata.stats.memory.pagescount = p; }
-static inline void stat_add_taken_pages(int c) { osdata.stats.memory.pagestaken += c; }
-static inline void stat_inc_taken_page() { osdata.stats.memory.pagestaken++; }
-static inline void stat_dec_taken_page() { osdata.stats.memory.pagestaken--; }
+static inline void stat_set_phys_pages(ptr_t p) { curr_cpu()->stats.memory.pagescount = p; }
+static inline void stat_add_taken_pages(int c) { curr_cpu()->stats.memory.pagestaken += c; }
+static inline void stat_inc_taken_page() { curr_cpu()->stats.memory.pagestaken++; }
+static inline void stat_dec_taken_page() { curr_cpu()->stats.memory.pagestaken--; }
 #else
 static inline void stat_set_phys_pages(ptr_t _p) { }
 static inline void stat_add_taken_pages(int _c) { }
@@ -536,36 +562,21 @@ static inline void stat_inc_taken_page() { }
 static inline void stat_dec_taken_page() { }
 #endif
 
-static inline mutex_t* cpu_loglock() { return &(osdata.loglock); }
-static inline struct dtb_node* cpu_get_parsed_dtb() { return osdata.dtbroot; }
-static inline struct pmm* cpu_get_pmm() { return &(osdata.pmm); }
-static inline struct sbrk* cpu_get_kernbrk() { return &(osdata.kernbrk); }
-static inline void* cpu_get_dtb() { return osdata.dtb; }
-static inline ptr_t cpu_get_pgd() { return osdata.kpgd; }
 //static inline ptr_t cpu_get_user_pgd() { return osdata.upgd; }
 //static inline void cpu_set_user_pgd(ptr_t o) { osdata.upgd = o; }
 static inline void cpu_set_user_pgd(ptr_t o) { current_proc()->user_pgd = o; }
 static inline ptr_t cpu_get_user_pgd() { return current_proc()->user_pgd; }
 static inline ptr_t* thread_get_user_pgd(struct thread* t) { return (ptr_t*)(t->owner->user_pgd); }
-static inline ptr_t cpu_linear_offset() { return osdata.linear_offset; }
-static inline struct vmmap* cpu_get_vmmap() { return &(osdata.vmmap); }
-
-static inline struct cpu* curr_cpu() { return &(osdata.cpus.cpus[cpu_id()]); }
 
 
-static inline int current_tid(void) {
-	return osdata.cpus.cpus[cpu_id()].running->id;
-}
-static inline struct thread* current_thread(void)	{
-	return osdata.cpus.cpus[cpu_id()].running;
-}
+
 
 #if defined(CONFIG_KCOV) && !defined(UMODE)
 static inline struct kcov* get_current_kcov(void) {
 	struct thread* t = current_thread();
-	return (t) ? t->kcov : NULL;
+	return PTR_IS_VALID(t) ? t->kcov : NULL;
 }
-static inline struct kcov* set_current_kcov(struct kcov* kcov) {
+static inline void set_current_kcov(struct kcov* kcov) {
 	struct thread* t = current_thread();
 	if(t) t->kcov = kcov;
 }
@@ -591,14 +602,14 @@ static inline int cpu_find_busyloop(void)	{
 
 }
 
-static inline uint16_t reverse_bits_16(uint16_t v)	{
+__force_inline static inline uint16_t reverse_bits_16(uint16_t v)	{
 	uint16_t r = 0;
 	r |= (v >> 8) & 0xff;
 	r |= (v << 8) & 0xff00;
 	return r;
 }
 
-static inline uint32_t reverse_bits_32(uint32_t v)	{
+__force_inline static inline uint32_t reverse_bits_32(uint32_t v)	{
 	uint32_t r = 0;
 	r = (v & 0xff) << 24;
 	r |= (v & 0xff00) << 8;
@@ -628,12 +639,12 @@ static inline uint16_t be_u16_to_cpu(uint16_t v)	{
 }
 
 
-static inline uint32_t be_u32_to_be(void* data)	{
+__force_inline static inline uint32_t be_u32_to_be(void* data)	{
 	return *((uint32_t*)data);
 }
 
 
-static inline uint32_t be_u32_to_le(void* data)	{
+__force_inline static inline uint32_t be_u32_to_le(void* data)	{
 	uint8_t* d = (uint8_t*)data;
 	uint32_t r = (uint32_t)(d[0]) << 24 | (uint32_t)(d[1]) << 16 | (uint32_t)(d[2]) << 8 | (uint32_t)(d[3]);
 	return r;
@@ -649,11 +660,11 @@ static inline uint32_t be_u32_to_cpu(void* data)	{
 #endif
 }
 
-static inline uint32_t be_u32bits_to_be(uint32_t data)	{
+__force_inline static inline uint32_t be_u32bits_to_be(uint32_t data)	{
 	return data;
 }
 
-static inline uint32_t be_u32bits_to_le(uint32_t data)	{
+__force_inline static inline uint32_t be_u32bits_to_le(uint32_t data)	{
 	uint32_t ret = 0;
 	ret |= (data & 0xff) << 24;
 	ret |= ((data & 0xff00) >> 8) << 16;
@@ -683,23 +694,27 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 
 }
 
+#define DMAR8(addr,res) res = READ_ONCE(*(uint8_t*)(addr))
+#define DMAR16(addr,res) res = READ_ONCE(*(uint16_t*)(addr))
+#define DMAR32(addr,res) res = READ_ONCE(*(uint32_t*)(addr))
+#define DMAR64(addr,res) res = READ_ONCE(*(uint64_t*)(addr))
+
+#define DMAW8(addr,val) WRITE_ONCE(*(uint8_t*)(addr), val)
+#define DMAW16(addr,val) WRITE_ONCE(*(uint16_t*)(addr), val)
+#define DMAW32(addr,val) WRITE_ONCE(*(uint32_t*)(addr), val)
+#define DMAW64(addr,val) WRITE_ONCE(*(uint64_t*)(addr), val)
+
+
 /*
-#define ALIGN_UP_POW2(num,val) { if(num == 0)	num = val; if((num % val) != 0)	{ num |= (val - 1); num++; } }
-#define ALIGN_DOWN_POW2(num,val) { if(num != 0 && (num % val) != 0) { num &= ~(val-1); } }
-*/
-
-
-
 #define DMAR8(addr, res) res = *((volatile uint8_t*)(addr))
 #define DMAR16(addr, res) res = *((volatile uint16_t*)(addr))
 #define DMAR32(addr, res) res = *((volatile uint32_t*)(addr))
 #define DMAR64(addr, res) res = *((volatile uint64_t*)(addr))
-
 #define DMAW8(addr, val) *((volatile uint8_t*)(addr)) = val;
 #define DMAW16(addr, val) *((volatile uint16_t*)(addr)) = val;
 #define DMAW32(addr, val) *((volatile uint32_t*)(addr)) = val;
 #define DMAW64(addr, val) *((volatile uint64_t*)(addr)) = val;
-
+*/
 // ---------------------- dtb.c --------------------- //
 uint32_t dtb_translate_ref(void* ref);
 void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr);
