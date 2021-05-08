@@ -497,7 +497,7 @@ int vfs_register_mount(const char* n, struct fs_struct* cb)	{
 		root->name[1] = 0x00;
 	}
 	else	{
-		char** name = (char**)(&n), *_n = n;
+		char** name = (char**)(&n), *_n = (char*)n;
 		int plus = 0;
 		parent = _vfs_walk_path(root, name, &plus);
 		ASSERT_FALSE(PTR_IS_ERR(parent), "Unable to find mount point")

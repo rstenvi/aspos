@@ -324,8 +324,8 @@ int _shared_write(char* buf, size_t count, bool kernel)	{
 	}
 	return res;
 }
-int kern_write(char* buf, size_t count)	{
-	return _shared_write(buf, count, true);
+int kern_write(const char* buf, size_t count)	{
+	return _shared_write((char*)buf, count, true);
 }
 int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
 	int res;

@@ -255,6 +255,7 @@ struct ringbuf {
 struct ringbuf* ringbuf_alloc(size_t sz);
 int ringbuf_read(struct ringbuf* rb, void* to, int size);
 int ringbuf_write(struct ringbuf* rb, void* from, int size);
+void ringbuf_delete(struct ringbuf* rb);
 
 // ----------------------- semaphore.c ------------------------ //
 
@@ -488,6 +489,7 @@ static inline struct kcov_data* get_current_kcov(void) {
 # define ASSERT_VALID_PTR(ptr)
 # define BUG_ASSERT ASSERT
 #else
+void panic(const char*, const char*, int);
 # define PANIC(msg) panic(msg, __FILE__, __LINE__)
 # define BUG(msg) panic(msg, __FILE__, __LINE__);
 # define ASSERT_TRUE(cond,msg) if( !(cond) ) { PANIC(msg); }

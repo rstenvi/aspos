@@ -284,7 +284,7 @@ static int _handle_cb(struct virtio_dev_struct* dev)	{
 		desc = virtio_get_desc(dev, sidx, elem->idx);
 
 		if(sidx == QUEUE_IDX_CTRL_RX)	{
-			struct virtio_console_control* ctrl = (desc->paddr + cpu_linear_offset());
+			struct virtio_console_control* ctrl = (struct virtio_console_control*)(desc->paddr + cpu_linear_offset());
 			if(elem->len < sizeof(struct virtio_console_control))	{
 				logw("Received too little data: %i\n", elem->len);
 			}

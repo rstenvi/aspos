@@ -7,6 +7,7 @@
 #include "kasan.h"
 #include "lib.h"
 #include "picol.h"
+#include "cmd.h"
 
 static int _exec_picol(struct picolInterp* interp, const char* n)	{
 	int pcode;

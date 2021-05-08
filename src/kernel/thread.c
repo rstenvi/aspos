@@ -956,7 +956,7 @@ int thread_create_driver_thread(struct thread_fd_open* fdo, ptr_t entry, int sys
 	if(sysno == SYS_OPEN)	{
 		if(p != curr)	{
 			ptr_t _vfso = _remap_vfsopen(p, o);
-			fdo->open = _vfso;
+			fdo->open = (struct vfsopen*)_vfso;
     		arch_thread_set_arg((void*)(t->stackptr), _vfso, 0); 
 
 			naddr = _remap_sys_open(t, curr, p, (const char*)allargs[0]);
@@ -1333,7 +1333,7 @@ int thread_open(const char* name, int flags, int mode)	{
 
 	fname = kname;
 	fs = vfs_find_open(&kname);
-	uname = name + (kname - fname);
+	uname = (char*)(name + (kname - fname));
 	free_user(fname);
 	if(PTR_IS_ERR(fs))	{
 		res = -1;

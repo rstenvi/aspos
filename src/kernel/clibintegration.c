@@ -92,7 +92,7 @@ ssize_t _write(int fd, const void* buf, size_t count)	{
 	size_t i;
 	const char* b = (const char*)buf;
 	if(fd == STDOUT || fd == STDERR)	{
-		kern_write(buf, count);
+		kern_write((const char*)buf, count);
 	}
 	/*
 	for(i = 0; i < count; i++)	{

@@ -912,6 +912,6 @@ void kasan_print_allocated(void);
 void kasan_never_freed(void* addr);
 #endif
 
-int kern_write(char* buf, size_t count);
+int kern_write(const char* buf, size_t count);
 
 #endif
