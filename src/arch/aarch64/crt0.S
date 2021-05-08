@@ -77,12 +77,17 @@ _start:
 
 	bl mmu_early_init
 
+	/* Enable MMU */
 	isb
 	mrs x0, sctlr_el1
 	orr x0, x0, 1
 	msr sctlr_el1, x0
 	isb
 
+	/*
+	* Call main
+	* kstart(text_load, dtbptr, kernpgd, userpgd, cpu_reset_func)
+	*/
 	mov x0, x9		/* .text load */
 	mov x1, x10
 #if ARM64_VA_BITS > 39
@@ -96,5 +101,6 @@ _start:
 	ldr x8, =kstart
 	blr x8
 	
+	/* Is valid to return here, but should not happen */
 1:
 	b 1b

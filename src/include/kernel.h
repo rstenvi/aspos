@@ -423,6 +423,7 @@ struct os_data {
 	*/
 	void* dtb;
 	struct dtb_node* dtbroot;
+	ptr_t cpu_reset_func;
 #if defined(CONFIG_EARLY_UART)
 	kputs_t kputs;
 	kputc_t kputc;
@@ -884,11 +885,11 @@ struct readwritev* create_kernel_iov(const struct iovec* iov, int iovcnt, int jo
 bool iovec_validate_addrs(const struct iovec* iov, int iovcnt);
 
 #if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
-extern int last_driver_uid;
+extern uint32_t last_driver_uid;
 #endif
 static inline uid_t driver_uid(void)	{
 #if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
-	return last_driver_uid++;
+	return (uint32_t)atomic_inc_fetch32(last_driver_uid);
 #else
 	return USERID_ROOT;
 #endif

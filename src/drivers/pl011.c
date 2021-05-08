@@ -104,7 +104,7 @@ static struct uart_struct uart;
 #define TMP_CLOCKFREQ 0x16e3600
 #define TMP_BAUD      115200
 
-static volatile uint8_t uartlock = 0;
+static mutex_t uartlock = 0;
 
 #if defined(CONFIG_EARLY_UART)
 static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
@@ -275,9 +275,8 @@ int pl011_getc(struct vfsopen* o)	{
 
 int pl011_putc(struct vfsopen* o, int c)	{
 	c &= 0xff;
-	mutex_acquire(&uartlock);
+	// No need for lock here, access is atomic
 	DMAW32(uart.base, (uint32_t)(c));
-	mutex_release(&uartlock);
 	return (int)c;
 }
 void _write_string(char* buf)	{

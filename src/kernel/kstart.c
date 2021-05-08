@@ -1,7 +1,7 @@
 #include "kernel.h"
 
 #if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
-int last_driver_uid = USERID_LAST;
+uint32_t last_driver_uid = USERID_LAST;
 #endif
 __attribute__((__section__(".bss"))) struct os_data osdata;
 
@@ -30,7 +30,7 @@ static int init_memory(ptr_t kimage);
 void secondary_cpu_start(void);
 //static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
 
-ptr_t secondary_cpu_reset = 0;
+//ptr_t secondary_cpu_reset = 0;
 
 #if defined(CONFIG_EARLY_UART)
 int early_printf(const char* fmt, ...)	{
@@ -59,8 +59,8 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 	osd->kernel_start = (ptr_t)&(KERNEL_START);
 	osd->kernel_end = (ptr_t)&(KERNEL_END);
 	osd->linear_offset = 0;
+	osd->cpu_reset_func = seccpu;
 
-	secondary_cpu_reset = seccpu;
 	mutex_clear(cpu_loglock()); 
 
 	uart_early_init();
@@ -100,7 +100,7 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 * fresh stack. In other words, we we cannot access any DMA resource through its
 * original mapping and we cannot return from this function.
 */
-static void kstart_stage2(void) {
+__noreturn static void kstart_stage2(void) {
 	struct os_data* osd = &(osdata);
 
 	// Linear region is set up, we must now reconfigure some addresses so that we can
@@ -160,7 +160,7 @@ static void kstart_stage2(void) {
 			mutex_acquire( &(cps->cpus[i].readylock) );
 
 			// Start the CPU
-			cps->cpu_on(cps->cpus[i].cpuid, secondary_cpu_reset);
+			cps->cpu_on(cps->cpus[i].cpuid, osd->cpu_reset_func);
 
 			// The CPU has finished booting, it will release the lock
 			mutex_acquire( &(cps->cpus[i].readylock) );
@@ -180,6 +180,9 @@ static void kstart_stage2(void) {
 
 	logi("Trigger per-CPU code\n");
 	percpu_start();
+
+	PANIC("Returned after starting CPUs\n");
+	while(1);
 }
 
 static void percpu_start(void)	{
@@ -271,18 +274,6 @@ static void init_sbrk(void)	{
 	brk->curroffset = 0;
 	mutex_clear(&brk->lock);
 }
-/*
-static void init_shared_sbrk(void)	{
-	struct sbrk* brk = cpu_get_userbrk();
-	brk->numpages = (MB*2) / PAGE_SIZE;
-	brk->mappedpages = 0;
-	brk->addr = (void*)vmmap_alloc_pages(brk->numpages, PROT_RW, VMMAP_FLAG_LAZY_ALLOC);
-	if(brk->addr == NULL)	{
-		PANIC("Unable to allocate memory");
-	}
-	brk->curroffset = 0;
-	mutex_clear(&brk->lock);
-}*/
 
 static void init_after_linear_region(void)	{
 	ptr_t start = (ptr_t)(&HMEMFUNC_START);
@@ -313,30 +304,3 @@ void klog(const char* lvl, const char* file, const char* func, char* fmt, ...)	{
 	va_end(argptr);
 	mutex_release(cpu_loglock());
 }
-
-/*
-static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)	{
-	uint32_t cells_sz, cells_addr;
-
-	void* reg = dtb_get_ref("memory", "reg", 0, &cells_sz, &cells_addr);
-	ASSERT_TRUE(reg != NULL, "Unable to get memory from dtb");
-
-	ASSERT_TRUE(cells_sz == 2 && cells_addr == 2, "Unsupported sizes");
-
-	uint64_t addr = 0, length = 0;
-
-	uint32_t tmp = dtb_translate_ref(reg);
-	addr = (uint64_t)(tmp) << 32;
-	tmp = dtb_translate_ref(reg + 4);
-	addr += tmp;
-
-	tmp = dtb_translate_ref(reg + 8);
-	length = (uint64_t)(tmp) << 32;
-	tmp = dtb_translate_ref(reg + 12);
-	length += tmp;
-
-	*outaddr = addr;
-	*outlen = length;
-	return OK;
-}
-*/
