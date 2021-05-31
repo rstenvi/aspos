@@ -168,6 +168,8 @@ struct fs_struct* vfs_walk_path(struct fs_component* root, char** _name)	{
 	int i, plus = 0;
 	char* name = *_name, * end;
 	root = _vfs_walk_path(root, &name, &plus);
+	if(!root)	return NULL;
+
 	name += plus;
 	*_name = name;
 	for(i = 0; i < root->currdevs; i++)	{
@@ -187,6 +189,7 @@ struct fs_struct* vfs_find_open(char** name)	{
 	struct fs_struct* fs;
 
 	fs = vfs_walk_path(d, name);
+	// fs may be NULL
 	
 	/*
 	open = vfs_find_child(d, name);
@@ -362,29 +365,37 @@ int vfs_mmap(struct thread_fd_open* fdo, void* addr, size_t length)	{
 }
 
 off_t generic_lseek(struct vfsopen* o, off_t offset, int whence)	{
+	off_t res;
 	switch(whence)	{
 		case SEEK_SET:
 			o->offset = offset;
 			break;
-		case SEEK_CUR:
-			o->offset += offset;
+		case SEEK_CUR: {
+			if(__builtin_add_overflow(o->offset, offset, &res))	{
+				logw("seek resulted in overflow %lx + %lx\n", o->offset, offset);
+				res = (off_t)-1;
+			}
+			else	{
+				o->offset = res;
+			}
 			break;
+		}
 		case SEEK_END:
 //		case SEEK_DATA:
 //		case SEEK_HOLE:
 		default:
-			logw("Unsupported lseek: %i\n", whence);
+			logw("Unsupported lseek: %lx\n", whence);
 			return (off_t)-1;
 	}
 	return (o->offset);
 }
-static int _vfs_lseek_user(struct thread_fd_open* fdo, off_t offset, int whence)	{
+static off_t _vfs_lseek_user(struct thread_fd_open* fdo, off_t offset, int whence)	{
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
 	return thread_create_driver_thread(fdo, (ptr_t)fs->lseek, SYS_LSEEK, 2, offset, whence);
 }
 off_t vfs_lseek(struct thread_fd_open* fdo, off_t offset, int whence)	{
-	int res = -USER_FAULT;
+	off_t res = -USER_FAULT;
 	struct vfsopen* o = fdo->open;
 	struct fs_struct* fs = fdo->fs;
 
@@ -500,7 +511,8 @@ int vfs_register_mount(const char* n, struct fs_struct* cb)	{
 		char** name = (char**)(&n), *_n = (char*)n;
 		int plus = 0;
 		parent = _vfs_walk_path(root, name, &plus);
-		ASSERT_FALSE(PTR_IS_ERR(parent), "Unable to find mount point")
+		if(!parent)	return -USER_FAULT;
+		//ASSERT_FALSE(PTR_IS_ERR(parent), "Unable to find mount point")
 		_n += plus;
 //		parent = vfs_find_child(root, name);
 
@@ -604,8 +616,10 @@ driver_init(init_vfs_dev);
 
 int device_register(struct fs_struct* dev)	{
 	struct fs_component* d = &(vfs_dev);
+#if defined(CONFIG_SUPPORT_USERS)
 	dev->owner.uid = driver_uid();
 	dev->owner.gid = driver_gid();
+#endif
 	if(d->currdevs >= d->maxdevs)	{
 		d->maxdevs += 10;
 		d->subfs = (struct fs_struct**)krealloc(d->subfs, sizeof(void*) * d->maxdevs);
@@ -647,8 +661,10 @@ bool vfs_functions_valid(struct fs_struct* fs, bool user)	{
 
 int vfs_fstat_fill_common(struct fs_struct* fs, struct stat* sb, enum file_type ft)	{
 	sb->st_mode = (1 << (((uint32_t)ft) + 16)) | (uint32_t)fs->perm;
+#if defined(CONFIG_SUPPORT_USERS)
 	sb->st_uid = fs->owner.uid;
 	sb->st_gid = fs->owner.gid;
+#endif
 	return OK;
 }
 

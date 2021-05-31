@@ -28,7 +28,7 @@ extern struct os_data osdata;
 #define kwrite(s) puts(s)
 #define kprintf(fmt, ...) osdata.printk(fmt, ##__VA_ARGS__)
 #if defined(UMODE)
-#define klog(level,fmt,...) dprintf(2, fmt, ##__VA_ARGS__)
+#define klog(fmt,...) dprintf(2, fmt, ##__VA_ARGS__)
 #else
 # if defined(CONFIG_SIMPLE_LOG_FORMAT)
 void klog(char* fmt, ...);

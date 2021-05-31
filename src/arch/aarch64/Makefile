@@ -10,7 +10,7 @@ OBJ += aarch64.o
 OBJ += arch.o
 OBJ += cpu_reset.o
 OBJ += cpu_features.o
-
+OBJ += svc.o
 
 ifdef CONFIG_KASAN
 CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
@@ -20,7 +20,11 @@ CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
 endif
 
 ifdef CONFIG_KCOV
-CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+crt0.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+mmu.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+arch.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+exception.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+cpu_features.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 endif
 
 all: $(OBJ) linker.lds

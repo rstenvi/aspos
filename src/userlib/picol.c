@@ -251,7 +251,7 @@ int picolGetToken(struct picolParser *p) {
 
 void picolInitInterp(struct picolInterp *i) {
     i->level = 0;
-    i->callframe = malloc(sizeof(struct picolCallFrame));
+    i->callframe = kmalloc(sizeof(struct picolCallFrame));
     i->callframe->vars = NULL;
     i->callframe->parent = NULL;
     i->commands = NULL;
@@ -259,7 +259,7 @@ void picolInitInterp(struct picolInterp *i) {
 }
 
 void picolSetResult(struct picolInterp *i, char *s) {
-    free(i->result);
+    kfree(i->result);
     i->result = strdup(s);
 }
 
@@ -275,10 +275,10 @@ struct picolVar *picolGetVar(struct picolInterp *i, char *name) {
 int picolSetVar(struct picolInterp *i, char *name, char *val) {
     struct picolVar *v = picolGetVar(i,name);
     if (v) {
-        free(v->val);
+        kfree(v->val);
         v->val = strdup(val);
     } else {
-        v = malloc(sizeof(*v));
+        v = kmalloc(sizeof(*v));
         v->name = strdup(name);
         v->val = strdup(val);
         v->next = i->callframe->vars;
@@ -304,7 +304,7 @@ int picolRegisterCommand(struct picolInterp *i, char *name, picolCmdFunc f, void
         picolSetResult(i,errbuf);
         return PICOL_ERR;
     }
-    c = malloc(sizeof(*c));
+    c = kmalloc(sizeof(*c));
     c->name = strdup(name);
     c->func = f;
     c->privdata = privdata;
@@ -330,36 +330,36 @@ int picolEval(struct picolInterp *i, char *t) {
         if (p.type == PT_EOF) break;
         tlen = p.end-p.start+1;
         if (tlen < 0) tlen = 0;
-        t = malloc(tlen+1);
+        t = kmalloc(tlen+1);
         memcpy(t, p.start, tlen);
         t[tlen] = '\0';
         if (p.type == PT_VAR) {
             struct picolVar *v = picolGetVar(i,t);
             if (!v) {
                 snprintf(errbuf,1024,"No such variable '%s'",t);
-                free(t);
+                kfree(t);
                 picolSetResult(i,errbuf);
                 retcode = PICOL_ERR;
                 goto err;
             }
-            free(t);
+            kfree(t);
             t = strdup(v->val);
         } else if (p.type == PT_CMD) {
             retcode = picolEval(i,t);
-            free(t);
+            kfree(t);
             if (retcode != PICOL_OK) goto err;
             t = strdup(i->result);
         } else if (p.type == PT_ESC) {
             /* XXX: escape handling missing! */
         } else if (p.type == PT_SEP) {
             prevtype = p.type;
-            free(t);
+            kfree(t);
             continue;
         }
         /* We have a complete command + args. Call it! */
         if (p.type == PT_EOL) {
             struct picolCmd *c;
-            free(t);
+            kfree(t);
             prevtype = p.type;
             if (argc) {
                 if ((c = picolGetCommand(i,argv[0])) == NULL) {
@@ -372,8 +372,8 @@ int picolEval(struct picolInterp *i, char *t) {
                 if (retcode != PICOL_OK) goto err;
             }
             /* Prepare for the next command */
-            for (j = 0; j < argc; j++) free(argv[j]);
-            free(argv);
+            for (j = 0; j < argc; j++) kfree(argv[j]);
+            kfree(argv);
             argv = NULL;
             argc = 0;
             continue;
@@ -388,13 +388,13 @@ int picolEval(struct picolInterp *i, char *t) {
             argv[argc-1] = krealloc(argv[argc-1], oldlen+tlen+1);
             memcpy(argv[argc-1]+oldlen, t, tlen);
             argv[argc-1][oldlen+tlen]='\0';
-            free(t);
+            kfree(t);
         }
         prevtype = p.type;
     }
 err:
-    for (j = 0; j < argc; j++) free(argv[j]);
-    free(argv);
+    for (j = 0; j < argc; j++) kfree(argv[j]);
+    kfree(argv);
     return retcode;
 }
 
@@ -476,18 +476,18 @@ void picolDropCallFrame(struct picolInterp *i) {
     struct picolVar *v = cf->vars, *t;
     while(v) {
         t = v->next;
-        free(v->name);
-        free(v->val);
-        free(v);
+        kfree(v->name);
+        kfree(v->val);
+        kfree(v);
         v = t;
     }
     i->callframe = cf->parent;
-    free(cf);
+    kfree(cf);
 }
 
 int picolCommandCallProc(struct picolInterp *i, int argc, char **argv, void *pd) {
     char **x=pd, *alist=x[0], *body=x[1], *p=strdup(alist), *tofree;
-    struct picolCallFrame *cf = malloc(sizeof(*cf));
+    struct picolCallFrame *cf = kmalloc(sizeof(*cf));
     int arity = 0, done = 0, errcode = PICOL_OK;
     char errbuf[1024];
     cf->vars = NULL;
@@ -507,7 +507,7 @@ int picolCommandCallProc(struct picolInterp *i, int argc, char **argv, void *pd)
         p++;
         if (done) break;
     }
-    free(tofree);
+    kfree(tofree);
     if (arity != argc-1) goto arityerr;
     errcode = picolEval(i,body);
     if (errcode == PICOL_RETURN) errcode = PICOL_OK;
@@ -521,7 +521,7 @@ arityerr:
 }
 
 int picolCommandProc(struct picolInterp *i, int argc, char **argv, void *pd) {
-    char **procdata = malloc(sizeof(char*)*2);
+    char **procdata = kmalloc(sizeof(char*)*2);
     if (argc != 4) return picolArityErr(i,argv[0]);
     procdata[0] = strdup(argv[2]); /* arguments list */
     procdata[1] = strdup(argv[3]); /* procedure body */

@@ -3,6 +3,7 @@ ENTRY(_start)
 
 SECTIONS {
 	. = 0x400000;
+	UMODE_IMAGE_START = .;
 	.init   : { crt0.o(.text) }
 	.text   : { *(.text) }
 
@@ -10,4 +11,5 @@ SECTIONS {
 
 	.data   : { *(.data) }
 	.bss   : { *(.bss) }
+	UMODE_IMAGE_STOP = .;
 }

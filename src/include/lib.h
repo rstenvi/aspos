@@ -30,11 +30,19 @@
 #define ALIGN_DOWN_POW2(num,val) { if(num != 0 && (num % val) != 0) { num &= ~(val-1); } }
 #define ALIGNED_ON_POW2(num,align) ((num & (align-1)) == 0)
 
+#define PTR_ALIGNED1(va) (true)
+#define PTR_ALIGNED2(va) (GET_ALIGNED_DOWN_POW2(va, 2) == va)
+#define PTR_ALIGNED4(va) (GET_ALIGNED_DOWN_POW2(va, 4) == va)
+#define PTR_ALIGNED8(va) (GET_ALIGNED_DOWN_POW2(va, 8) == va)
+
+#define PTR_ALIGNED(va) PTR_ALIGNED8(va)
+
 #define MIN(a,b) ((a < b) ? a : b)
 #define MAX(a,b) ((a > b) ? a : b)
 
-
-
+#define ALIGNED_PAGE(num) (GET_ALIGNED_DOWN_POW2(num, PAGE_SIZE) == num)
+#define GET_ALIGNED_PAGE_UP(num) GET_ALIGNED_UP_POW2(num, PAGE_SIZE)
+#define GET_ALIGNED_PAGE_DOWN(num) GET_ALIGNED_DOWN_POW2(num, PAGE_SIZE)
 
 /** Hold mutex after open */
 #define MUTEX_FLAG_HOLD (1 << 0)
@@ -98,7 +106,7 @@ enum RETURN {
 };
 
 #define ERR_ADDR_PTR(num) (void*)(num)
-#define PTR_IS_ERR(ptr)   (((void*)ptr > (void*)(-ERROR_LAST)) || (ptr == NULL))
+#define PTR_IS_ERR(ptr)   (((void*)ptr > (void*)(-ERROR_LAST)) || ((void*)ptr == NULL))
 #define PTR_IS_VALID(ptr) (!PTR_IS_ERR(ptr))
 #define PTR_TO_ERRNO(ptr) (ptr == NULL) ? -GENERAL_FAULT : (int)((ptr_t)(ptr))
 
@@ -139,6 +147,23 @@ struct bm {
 	mutex_t lock;
 };
 
+struct vec_item {
+	void* item;
+	long key;
+};
+struct Vec {
+	mutex_t lock;
+	uint32_t citems, aitems;
+	struct vec_item* items;
+};
+struct Vec* vec_init(size_t items);
+int vec_insert(struct Vec* vec, void* ins, long key);
+void* vec_find(struct Vec* vec, long key);
+void* vec_remove(struct Vec* vec, long key);
+void* vec_remove_last(struct Vec* vec);
+void* vec_index(struct Vec* vec, int idx);
+int vec_modkey(struct Vec* vec, int idx, long key);
+int vec_destroy(struct Vec* vec);
 
 struct XIFO {
 	void** items;
@@ -293,12 +318,16 @@ int dup(int oldfd);
 int get_char(int fd);
 int put_char(int fd, int c);
 int wait_tid(int tid);
+int wait_pid(int pid);
 int get_tid(void);
+int getpid(void);
 int conf_thread(ptr_t,ptr_t);
 int conf_process(ptr_t,ptr_t);
 int poweroff(void);
 void* mmap(void* addr, size_t length, int prot, int flags, int fd);
+void* _mmap(void* addr, size_t length, int prot, int flags, int fd);
 int munmap(void* addr);
+int _munmap(void* addr);
 //int afstat(int fd, void* statbuf);
 //int fcntl(int fd, ptr_t cmd, ptr_t arg);
 /*
@@ -364,6 +393,7 @@ enum CHARDEV_MODE {
 	CHAR_MODE_BYTE = 0,
 	CHAR_MODE_LINE,
 	CHAR_MODE_LINE_ECHO,
+	CHAR_MODE_LAST,
 };
 
 
@@ -473,7 +503,7 @@ struct user_thread_info {
 # if CONFIG_USER_THREAD_INFO
 extern struct user_thread_info threadinfo;
 # endif
-static inline struct kcov_data* get_current_kcov(void) {
+__always_inline static inline struct kcov_data* get_current_kcov(void) {
 # if CONFIG_USER_THREAD_INFO
 	return threadinfo.caller_kcov;
 # else
@@ -526,24 +556,37 @@ void panic(const char*, const char*, int);
 #define MAP_PROT_WRITE (1 << 1)
 #define MAP_PROT_EXEC  (1 << 2)
 
-#define MAP_NON_CLONED (1)
+/**
+* Avoid copying the memory region on fork
+*/
+#define MAP_NON_CLONED (1 << 0)
 
-#ifndef UMODE
+/**
+* Reserve virtual memory, but do not allocate physical pages.
+*
+* - A read from uninitialized memory will trigger an exception and potentially
+*   shut down the program.
+* - A write will cause the memory to be mapped in before the write is executed.
+*/
+#define MAP_LAZY_ALLOC (1 << 1)
+
 #if defined(CONFIG_KASAN)
 #include "kasan.h"
-#endif
 void kasan_malloc(void* addr, size_t size);
 void kasan_free(void* addr);
+#endif
+
 __force_inline static inline void* kmalloc(size_t size)	{
-# if defined(CONFIG_KASAN)
+#if defined(CONFIG_KASAN)
 	int rz_after = KASAN_REDZONE_AFTER + (8 - (size % 8));
 	void* ret = malloc(size + KASAN_REDZONE_BEFORE + rz_after);
 	kasan_malloc(ret, size);
 	return (ret + KASAN_REDZONE_BEFORE);
-# else
+#else
 	return malloc(size);
-# endif
+#endif
 }
+
 /*
 * TODO: For this to work, we need to store rz_before in kasan-entry
 __force_inline static inline void* kcalloc(size_t nmemb, size_t size)	{
@@ -560,21 +603,21 @@ __force_inline static inline void* kcalloc(size_t nmemb, size_t size)	{
 */
 __force_inline static inline void kfree(void* addr)	{
 	if(addr == NULL)	return;
-# if defined(CONFIG_KASAN)
+#if defined(CONFIG_KASAN)
 	// kasan is responsible for free-ing the data
 	kasan_free(addr);
-# else
+#else
 	free(addr);
-# endif
+#endif
 }
 __force_inline static inline void* krealloc(void* addr, size_t size)	{
 	if(addr == NULL)	return kmalloc(size);
 
-# if defined(CONFIG_KASAN)
+#if defined(CONFIG_KASAN)
 	void* naddr;
 	int osize = kasan_alloc_size(addr);
 	if(osize <= 0)	{
-		//logw("Unable to find allocated address\n");
+		printf("Unable to find allocated address\n");
 		return realloc(addr, size);
 	}
 	naddr = kmalloc(size);
@@ -583,15 +626,10 @@ __force_inline static inline void* krealloc(void* addr, size_t size)	{
 	memcpy(naddr, addr, osize);
 	kfree(addr);
 	return naddr;
-# else
-	return realloc(addr, size);
-# endif
-}
 #else
-__force_inline static inline void* kmalloc(size_t size)	{ return malloc(size); }
-__force_inline static inline void kfree(void* addr)		{ free(addr); }
-__force_inline static inline void* krealloc(void* addr, size_t size) { return realloc(addr, size); }
+	return realloc(addr, size);
 #endif
+}
 
 #define TMALLOC(name,type) \
 	type* name = (type*)kmalloc( sizeof(type) );
@@ -607,5 +645,6 @@ __force_inline static inline void* krealloc(void* addr, size_t size) { return re
 #define TZALLOC_ERR(name,type) \
 	TMALLOC_ERR(name,type) \
 	memset(name, 0x00, sizeof(*name));
+
 
 #endif

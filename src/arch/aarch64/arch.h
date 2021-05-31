@@ -42,9 +42,22 @@ static int arch_max_supported_args(void) { return 8; }
 static inline bool prot_writable(enum MEMPROT prot)	{
 	return (prot == PROT_RW) || (prot == PROT_RWX);
 }
-
-static inline void isb() { asm("isb"); }
-static inline void dsb() { asm("dsb SY"); }
+__force_inline static inline ptr_t get_stack(void)	{
+	ptr_t ret;
+	asm("mov %0, sp" : "=r"(ret));
+	return ret;
+}
+__force_inline static inline void dc_ivac(uint64_t r) { asm("dc cvac, %0" : : "r"(r)); }
+__force_inline static inline void isb() { asm("isb"); }
+__force_inline static inline void dsb() { asm("dsb SY"); }
+__force_inline static inline void dmb() { asm("dmb SY"); }
+__force_inline static inline void flush_tlb_all(void)
+{
+	dsb();
+	asm("tlbi vmalle1");
+	dsb();
+	isb();
+}
 //__force_inline static inline ptr_t arch_return_pc(void) { asm("mov x0, lr"); }
 
 #define CHK_CLONE_FLAG_USER   (1 << 0)
@@ -58,6 +71,7 @@ int mmu_copy_cloned_pages(ptr_t vaddr, int pages, ptr_t* pgd1, ptr_t* pgd2);
 void mmu_unmap_pages_pgd(ptr_t* pgd, ptr_t vaddr, int pages);
 bool mmu_page_mapped(ptr_t addr);
 bool mmu_check_page_cloned_pgd(ptr_t* pgd, ptr_t vaddr, uint32_t flags /*bool user, bool instr, bool write*/);
+void* mmu_memcpy_user(ptr_t* pgd, void* _dest, const void* _src, size_t n);
 int mmu_map_page_pgd_oa_entry(ptr_t* pgd, ptr_t vaddr, ptr_t oa, ptr_t entry);
 int mmu_map_page_pgd(ptr_t* pgd, ptr_t vaddr, enum MEMPROT prot);
 ptr_t mmu_find_free_pages(ptr_t* pgd, int startpage, int pages);
@@ -109,10 +123,13 @@ ptr_t arch_thread_memcpy_stack(ptr_t* pgd, struct exception* e, void* data, int 
 
 int arch_update_after_copy(ptr_t* pgd, ptr_t kstack, ptr_t ustack, ptr_t _kstack, ptr_t _ustack, ptr_t stackptr, ptr_t _stackptr);
 void set_stack(uint64_t, void (*cb_t)(void));
+ptr_t get_stack(void);
 
 #define PAGE_SIZE ARM64_PAGE_SIZE
 
 #define CNTV_CTL_ENABLE   (1 << 0)
+
+void arch_update_thread_access(void* t);
 
 uint64_t read_cntv_ctl_el0();
 void write_cntv_ctl_el0(uint64_t);
@@ -181,8 +198,8 @@ static inline void arch_set_upgd(ptr_t pgd)	{
 void flush_tlb(void);
 
 __force_inline static inline void arch_smp_mb(void)	{
-#ifdef CONFIG_SMP
 	dsb();
+#ifdef CONFIG_SMP
 #endif
 }
 

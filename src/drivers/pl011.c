@@ -77,7 +77,7 @@
 struct uart_read {
 	void* uaddr;
 	size_t max;
-	int tid;
+	struct thread* thread;
 };
 
 struct uart_struct {
@@ -115,9 +115,7 @@ static bool poll_have_rx_data()	{
 }
 
 int uart_early_putc(char c)	{
-	mutex_acquire(&uartlock);
 	DMAW32(uart.base, (uint32_t)c);
-	mutex_release(&uartlock);
 	return OK;
 }
 
@@ -130,7 +128,9 @@ int uart_early_getc(void)	{
 
 
 int uart_early_write(const char* str)	{
+	mutex_acquire(&uartlock);
 	while(*str != 0x00)	uart_early_putc(*str++);
+	mutex_release(&uartlock);
 }
 #endif
 
@@ -205,15 +205,13 @@ static int check_wakeup_read(void)	{
 	if(uart.curridx <= 0 || uart.firstidx == uart.curridx)	return OK;
 
 	// Check if anyone wants data
-	if(uart.job.tid < 0)	return OK;
+	struct thread* t = uart.job.thread;
+	if(PTR_IS_ERR(t))	return OK;
+	if(t->id < 0)	return OK;
 
 	char last = uart.data[uart.curridx-1];
 	int ret = OK;
 
-	if(uart.mode == CHAR_MODE_LINE_ECHO)	{
-		DMAW32(uart.base, (uint32_t)(last));
-	}
-	
 	if((uart.mode == CHAR_MODE_LINE || uart.mode == CHAR_MODE_LINE_ECHO) && last == '\n')	{
 		ret = USER_WAKEUP;
 	}
@@ -229,22 +227,24 @@ static int check_wakeup_read(void)	{
 }
 
 static int perform_read_job(int* res)	{
-	int tid = uart.job.tid;
+	if(PTR_IS_ERR(uart.job.thread))	return OK;
+
+	int tid = uart.job.thread->id;
 	int dataread = (uart.curridx - uart.firstidx);
 	*res = dataread;
 	if(uart.mode != CHAR_MODE_BYTE)	{
-		memcpy_to_user(uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
+		mmu_memcpy(thread_get_user_pgd(uart.job.thread), uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
 		uart.curridx = uart.firstidx = 0;
 	}
 	else	{
 		*res = uart.data[uart.firstidx++];
 	}
-	uart.job.tid = -1;
+	uart.job.thread = NULL;
 	return tid;
 }
 
 int pl011_read(struct vfsopen* o, void* buf, size_t count)	{
-	uart.job.tid = current_tid();
+	uart.job.thread = current_thread();
 	uart.job.uaddr = buf;
 	uart.job.max = count;
 
@@ -260,7 +260,7 @@ int pl011_read(struct vfsopen* o, void* buf, size_t count)	{
 int pl011_getc(struct vfsopen* o)	{
 	int res;
 	uart.mode = CHAR_MODE_BYTE;
-	uart.job.tid = current_tid();
+	uart.job.thread = current_thread();
 	uart.job.uaddr = NULL;
 	uart.job.max = 0;
 
@@ -339,6 +339,8 @@ int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
 }
 
 static int _set_mode(ptr_t arg)	{
+	if(arg >= CHAR_MODE_LAST)	return -USER_FAULT;
+
 	mutex_acquire(&uart.lock);
 	uart.mode = (enum CHARDEV_MODE)arg;
 	mutex_release(&uart.lock);
@@ -369,7 +371,26 @@ int pl011_receive(void)	{
 	DMAR32(uart.base, r);
 
 	char c = (char)(r & 0xff);
-	if(c == '\r')	c = '\n';
+	if(uart.mode == CHAR_MODE_LINE_ECHO || uart.mode == CHAR_MODE_LINE)	{
+		if(c == '\r')	c = '\n';
+
+		// Backspace
+		if(c == 0x7f)	{
+			c = '\b';
+			if(uart.curridx)	{
+				uart.data[--uart.curridx] = 0x00;
+				if(uart.mode == CHAR_MODE_LINE_ECHO)	{
+					pl011_putc(NULL, '\b'); pl011_putc(NULL, ' '); pl011_putc(NULL, '\b');
+				}
+			}
+			goto out;
+		}
+
+
+		if(uart.mode == CHAR_MODE_LINE_ECHO)	{
+			pl011_putc(NULL, c);
+		}
+	}
 	uart.data[uart.curridx++] = c;
 
 	res = check_wakeup_read();
@@ -379,6 +400,7 @@ int pl011_receive(void)	{
 		int tid = perform_read_job(&dataread);
 		thread_wakeup(tid, dataread);
 	}
+out:
 	mutex_release(&uartlock);
 	return OK;
 }
@@ -430,7 +452,7 @@ int init_pl011(void)	{
 	uart.curridx = uart.firstidx = 0;
 	uart.mode = CHAR_MODE_LINE;
 
-	uart.job.tid = -1;
+	uart.job.thread = NULL;
 
 	uart.write_pending = xifo_alloc(5, 2);
 #if defined(CONFIG_KASAN)

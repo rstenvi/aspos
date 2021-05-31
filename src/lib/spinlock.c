@@ -4,7 +4,11 @@
 */
 
 #include "lib.h"
+#include "memory.h"
 
+#ifndef UMODE
+#include "kernel.h"
+#endif
 /**
 * Perform a spinlock to acquire a lock. Release with :c:func:`mutex_release`
 *
@@ -26,9 +30,9 @@ int mutex_acquire(mutex_t* lock)	{
 	* were 'set'. It should be only used for operands of type bool or char. For
 	* other types only part of the value may be set."
 	*/
-	while(__atomic_test_and_set(lock, __ATOMIC_RELAXED) == true)	{
-
+	while(__atomic_test_and_set(lock, __ATOMIC_SEQ_CST) == true)	{
 	}
+	asm("dsb sy");
 	return OK;
 }
 
@@ -41,7 +45,8 @@ int mutex_acquire(mutex_t* lock)	{
 *	:c:type:`OK` on success and :c:type:`GENERAL_FAULT` on failure.
 */
 int mutex_try_acquire(mutex_t* lock)	{
-	if(__atomic_test_and_set(lock, __ATOMIC_RELAXED) == true)
+
+	if(__atomic_test_and_set(lock, __ATOMIC_SEQ_CST) == true)
 		return -(GENERAL_FAULT);
 
 	return OK;
@@ -56,7 +61,8 @@ int mutex_try_acquire(mutex_t* lock)	{
 *	:c:type:`OK`
 */
 int mutex_release(mutex_t* lock)	{
-	__atomic_clear(lock, __ATOMIC_RELAXED);
+	asm("dsb sy");
+	__atomic_clear(lock, __ATOMIC_SEQ_CST);
 	return OK;
 }
 
@@ -68,6 +74,7 @@ int mutex_release(mutex_t* lock)	{
 *	:c:type:`OK`
 */
 int mutex_clear(mutex_t* lock)	{
-	__atomic_clear(lock, __ATOMIC_RELAXED);
+	asm("dsb sy");
+	__atomic_clear(lock, __ATOMIC_SEQ_CST);
 	return OK;
 }

@@ -11,7 +11,7 @@ MARCH=armv$(ARMV_MAJOR).$(ARMV_MINOR)-$(ARM_PROFILE)
 endif
 
 UPROG = test
-USE_DISK = 0
+USE_DISK = 1
 
 
 TARGET = aarch64-none-elf
@@ -35,25 +35,25 @@ SH_FLAGS += -include config.h
 #UBSAN_SAN = alignment,bool,builtin,bounds,enum,integer-divide-by-zero,nonnull-attribute,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound
 
 CFLAGS += -I$(CROOT)/src/include -I$(CROOT)/src/arch/$(ARCH)
-CFLAGS += -g
 CFLAGS += -MMD
+
+ifdef DEBUG_BUILD
+CFLAGS += -g
+else
+CFLAGS += -O0
+endif
 
 ifdef CONFIG_UBSAN
 include $(CROOT)/ubsan.mk
 endif
 
-ifndef UMODE
 ifdef CONFIG_KASAN
 include $(CROOT)/kasan.mk
-endif
 endif
 
 ifdef CONFIG_KCOV
 include $(CROOT)/kcov.mk
 endif
-
-#CFLAGS += -Wno-implicit-function-declaration
-#CFLAGS += -O1
 
 ASFLAGS += -I$(CROOT)/src/include
 
@@ -70,9 +70,9 @@ ASFLAGS += $(SH_FLAGS)
 QEMU_FLAGS += -machine virt
 # Test older:
 # - cortex-a57
-QEMU_FLAGS += -cpu max
+QEMU_FLAGS += -cpu cortex-a72
 QEMU_FLAGS += -nographic
-QEMU_FLAGS += -smp 1
+QEMU_FLAGS += -smp 2
 # TODO: There are some assumptions on the amount of memory in the code
 QEMU_FLAGS += -m 128M
 

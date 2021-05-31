@@ -36,7 +36,7 @@ typedef int (*printf_t)(const char*, ...);
 
 #define __force_inline __attribute__((always_inline))
 #define __noreturn __attribute__((noreturn))
-
+#define __notrace __attribute__((no_instrument_function))
 
 /*
 * These are used to create unique identifiers in the code, which is used to

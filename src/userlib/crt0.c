@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include "lib.h"
+#include "arch.h"
  
 extern void _exit(int);
 extern int main ();
@@ -28,7 +29,7 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	* If any gets an unexpected result, we exit
 	*/
 	int in, out, err;
-	in = open("/dev/console", OPEN_FLAG_RW, 0);
+	in = open("/dev/console", OPEN_FLAG_RW | OPEN_FLAG_CTRL, 0);
 	if(in != 0)	_exit(in);
 
 	out = dup(in);
@@ -36,6 +37,20 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 
 	err = dup(out);
 	if(err != 2)	_exit(err);
+
+#ifdef CONFIG_KASAN
+	kasan_init();
+
+	ptr_t stack_end = GET_ALIGNED_PAGE_UP(get_stack());
+	ptr_t stack_beg = stack_end - (CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE);
+	kasan_mark_valid(stack_beg, stack_end - stack_beg);
+
+	// TODO:
+	// - These could be larger than a page size
+	// - Solution is to parse argc and argv to mark those regions as valid
+	if(argv != 0)	kasan_mark_valid(argv, PAGE_SIZE);
+	if(envp != 0)	kasan_mark_valid(envp, PAGE_SIZE);
+#endif
 
 #if CONFIG_USER_THREAD_INFO
 	conf_process(PROC_STORE_THREAD_INFO, (ptr_t)(&threadinfo));
@@ -57,6 +72,9 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 #endif
 
     int ex = main(argc, argv, envp);
+#ifdef CONFIG_KASAN
+	kasan_print_allocated();
+#endif
     _exit(ex);
 }
 
@@ -69,8 +87,8 @@ void _exception_exit(int arg)	{
 #if CONFIG_INIT_RANDOM_SEED
 static void _seed_random(void)	{
 	int res;
-	unsigned int seed;
-	int rand = open("/dev/random", 0, 0);
+	unsigned int seed = 0;
+	int rand = open("/dev/random", OPEN_FLAG_READ);
 	if(rand < 0)	{
 		puts("Failed to open random driver\n");
 		_exit(rand);
@@ -80,6 +98,8 @@ static void _seed_random(void)	{
 		puts("Failed to read acquired number of bytes from random driver\n");
 		_exit(res);
 	}
+	printf("SEED: 0x%x\n", seed);
 	srandom(seed);
+	close(rand);
 }
 #endif

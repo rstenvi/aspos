@@ -2,12 +2,14 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <limits.h>
 
 #include "ubsan.h"
 #include "kasan.h"
 #include "lib.h"
 #include "picol.h"
 #include "cmd.h"
+#include "memory.h"
 
 static int _exec_picol(struct picolInterp* interp, const char* n)	{
 	int pcode;
@@ -141,6 +143,48 @@ void _mutex_thread(int fd)	{
 	}
 }
 
+int test_umem(void)	{
+	int fd;
+	int res;
+	fd = open("/dev/umem", OPEN_FLAG_RW);
+	if(fd < 0)	{
+		printf("Unable to open /dev/umem\n");
+		return fd;
+	}
+
+	res = seek_read(fd, NULL, sizeof(int), (size_t)&fd);
+	if(res != sizeof(int))	{
+		printf("Expected %i but got %i\n", sizeof(int), res);
+		goto err1;
+	}
+
+	res = seek_read(fd, NULL, sizeof(int), 0xdead);
+	if(res > 0)	{
+		printf("Was able to read from dead pointer: %i\n", res);
+		goto err1;
+	}
+err1:
+	close(fd);
+	return 0;
+}
+
+int test_lmem(void)	{
+	void* mem;
+	uint8_t* m;
+
+	mem = _mmap(NULL, 128, MAP_PROT_READ|MAP_PROT_WRITE, MAP_LAZY_ALLOC, -1);
+	if(PTR_IS_ERR(mem))	{
+		printf("Unable to allocate memory, returned %p\n", mem);
+	}
+	m = mem;
+
+	m[42] = 0x42;
+
+	m[0] = 0;
+
+	return *m;
+}
+
 void test_mutex(void)	{
 	int fd, ntid1, ntid2;
 	printf("Testing mutex driver\n");
@@ -227,7 +271,7 @@ void test_proc(void)	{
 	char buf[MAX_BUF];
 
 	// Run proc-driver in different process
-	if(fork())	{
+	if(!fork())	{
 		fdproc = init_proc(false);
 		if(fdproc < 0)	{
 			printf("Unable to mount /proc error: %i\n", fdproc);
@@ -238,8 +282,8 @@ void test_proc(void)	{
 //		proc_keepalive();
 		exit_thread(0);
 	}
-	msleep(100);
 	// This is parent
+	msleep(100);
 	fd = open("/proc/version", OPEN_FLAG_READ, 0);
 	if(fd < 0)	{
 		printf("Unable to open /proc/version: %i\n", fd);
@@ -338,7 +382,24 @@ err1:
 	return res;
 }
 
+int test_kasan_user(void)	{
+	printf("Testing user mode kasan\n\n");
+	int* a = kmalloc(10 * sizeof(int));
+	kfree(a);
+	return READ_ONCE(a[0]);
+}
+
+int test_ubsan_user(void)	{
+	printf("Starting user mode ubsan tests\n");
+	int a = INT_MAX;
+	a++;
+
+	printf("\n\n");
+	return 0;
+}
+
 int test_ubsan(void)	{
+	printf("Starting kernel mode ubsan tests\n");
 	int fd, res;
 	fd = open("/dev/ubsan-test", OPEN_FLAG_READ | OPEN_FLAG_CTRL);
 	if(fd < 0)	return fd;
@@ -346,6 +407,7 @@ int test_ubsan(void)	{
 	res = fcntl(fd, FCNTL_UBSAN_ALL_TESTS);
 	if(res < 0)	goto err1;
 
+	printf("\n\n");
 err1:
 	close(fd);
 	return res;
@@ -366,20 +428,23 @@ int test_socket(void)	{
 	res = fcntl(fd, FCNTL_VIRTIO_CONNECT);
 	if(res < 0)	return res;
 	for(i = 0; i < 10; i++)	{
+		memset(buf, 0x00, BUF_MAX);
 		res = write(fd, "Hello", 5);
 		if(res < 0)	return res;
 		printf("Wrote %i bytes\n", res);
+
+		res = read(fd, buf, BUF_MAX);
+		if(res < 0)	return res;
+		printf("Read '%s' from remote host\n");
 	}
 
+	msleep(100);
 	close(fd);
 
 
 //	res = write(fd, "Hello", 5);
 //	if(res < 0)	return res;
 /*
-	res = read(fd, buf, BUF_MAX);
-	if(res < 0)	return res;
-	printf("Read '%s' from remote host\n");
 */
 /*
 //	res = fcntl(fd, FCNTL_VIRTIO_SET_TARGET, (2 | (9999UL << 32)));
@@ -395,47 +460,120 @@ int test_socket(void)	{
 	msleep(3000);
 	return 0;
 }
-int test_kcov(void)	{
 #define KCOV_MAX_ENTRIES (1000)
-#define ALLOC_BUFFER     (4096 * 2)
-	int fd, res, entries, i;
-	void* addr;
+#define ALLOC_BUFFER     (4096 * 256)
 
-
+int _kcov_pre(void)	{
+	int fd, res;
 	fd = open("/dev/kcov", OPEN_FLAG_READ|OPEN_FLAG_CTRL);
 	if(fd < 0)	return fd;
 
 	res = fcntl(fd, FCNTL_KCOV_INIT);
 	if(res < 0)	return res;
 
+	return fd;
+}
+void* _kcov_mmap(int fd, bool enable)	{
+	void* addr;
+	int res;
 	addr = mmap(NULL, ALLOC_BUFFER, MAP_PROT_READ|MAP_PROT_WRITE, MAP_NON_CLONED, fd);
-	printf("Addr: %p\n", addr);
 
-/*
-	buf = (ptr_t*)kmalloc( ALLOC_BUFFER );
-	if(PTR_IS_ERR(buf))	return -1;
-*/
-	res = fcntl(fd, FCNTL_KCOV_ENABLE);
-	if(res < 0)	goto err1;
+	if(enable)	{
+		res = fcntl(fd, FCNTL_KCOV_ENABLE);
+		if(res < 0)	return NULL;
+	}
 
-	yield();
-
-	res = fcntl(fd, FCNTL_KCOV_DISABLE);
-	if(res < 0)	goto err1;
-/*
-	res = read(fd, buf, ALLOC_BUFFER);
-	entries = res / sizeof(ptr_t);
-	*/
+	return addr;
+}
+int _kcov_dump(void* addr)	{
+	int i;
 	struct kcov_data* data = (struct kcov_data*)addr;
 	printf("Read %i entries\n", data->currcount);
 	for(i = 0; i < data->currcount; i++)	{
 		printf("0x%lx\n", data->entries[i]);
 	}
+	WRITE_ONCE(data->currcount, 0);
+}
+int test_kcov(void)	{
+	int fd, res, i;
+	void* addr;
+
+	fd = _kcov_pre();
+
+	addr = _kcov_mmap(fd, true);
+	if(!addr)	goto err1;
+
+
+	for(i = 0; i < 2; i++)	{
+		res = fcntl(fd, FCNTL_KCOV_ENABLE);
+		if(res < 0)	goto err1;
+
+		yield();
+
+		res = fcntl(fd, FCNTL_KCOV_DISABLE);
+		if(res < 0)	goto err1;
+
+		_kcov_dump(addr);
+	}
+
 	munmap(addr);
 	close(fd);
 err1:
 	return res;
 }
+
+int test_kcov2(void)	{
+	int fd, fdv, fdproc, res, ret;
+	void* addr;
+	char buf[MAX_BUF];
+
+	// Run proc-driver in different process
+	if(!fork())	{
+		fdproc = init_proc(false);
+		if(fdproc < 0)	{
+			printf("Unable to mount /proc error: %i\n", fdproc);
+			return -1;
+		}
+		// The process should be kept alive even if all threads exit
+		conf_process(PROC_KEEPALIVE, true);
+		exit_thread(0);
+	}
+
+	msleep(100);
+	// This is parent
+	fdv = open("/proc/version", OPEN_FLAG_READ, 0);
+	if(fdv < 0)	{
+		printf("Unable to open /proc/version: %i\n", fdv);
+		return -1;
+	}
+
+	fd = _kcov_pre();
+
+	addr = _kcov_mmap(fd, false);
+
+	if(!addr)	goto err1;
+
+	res = fcntl(fd, FCNTL_KCOV_ENABLE);
+	if(res < 0)	goto err1;
+
+	ret = read(fdv, buf, MAX_BUF);
+
+	res = fcntl(fd, FCNTL_KCOV_DISABLE);
+	if(res < 0)	goto err1;
+
+	if(ret > 0)	{
+		printf("version: '%s'\n", buf);
+	}
+
+	_kcov_dump(addr);
+
+	munmap(addr);
+	close(fd);
+err1:
+	return res;
+
+}
+
 int test_fork(void)	{
 	int val = 42;
 	int pid;
@@ -443,11 +581,12 @@ int test_fork(void)	{
 	if(pid == 0)	{
 	//	write(STDOUT, "Child\n", 6);
 		//exit_thread(0);
-		msleep(1000);
 		printf("Child: %i\n", val);
+		msleep(10000);
 //		write(STDOUT, "Child\n", 6);
 	}
 	else	{
+		wait_pid(pid);
 		val++;
 		// With a delay here, the second proc which finishes
 		// will return to incorrect place
@@ -458,13 +597,14 @@ int test_fork(void)	{
 	return 0;
 }
 
-void read_stdin(void)	{
+int read_stdin(void)	{
 	char buf[16];
 	int res;
 	memset(buf, 0x00, 16);
 
 	res = read(0, buf, 16);
 	printf("res = %i | buf: %s\n", res, buf);
+	return res;
 }
 
 void print_usage()	{
@@ -529,14 +669,30 @@ int main(int argc, char* argv[])	{
 	else if(!strcmp(argv[1], "kcov"))	{
 		res = test_kcov();
 	}
+	else if(!strcmp(argv[1], "kcov2"))	{
+		res = test_kcov2();
+	}
 	else if(!strcmp(argv[1], "ubsan"))	{
 		res = test_ubsan();
+		res = test_ubsan_user();
 	}
 	else if(!strcmp(argv[1], "kasan"))	{
 		res = test_kasan();
 	}
+	else if(!strcmp(argv[1], "kasanu"))	{
+		res = test_kasan_user();
+	}
 	else if(!strcmp(argv[1], "vconsole"))	{
 		res = test_vconsole();
+	}
+	else if(!strcmp(argv[1], "stdin"))	{
+		res = read_stdin();
+	}
+	else if(!strcmp(argv[1], "umem"))	{
+		res = test_umem();
+	}
+	else if(!strcmp(argv[1], "lmem"))	{
+		res = test_lmem();
 	}
 	else	{
 		printf("'%s' is not a valid command\n", argv[1]);

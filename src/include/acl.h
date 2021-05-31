@@ -13,12 +13,12 @@ struct user_id	{
 };
 
 struct kern_user_struct	{
-	mutex_t lock;
 	struct user_id real;
 #if defined(CONFIG_SUPPORT_SYSCALL_FILTER)
 	sysfilter_t filter;
 #endif
 	int refcount;
+	mutex_t lock;
 };
 
 

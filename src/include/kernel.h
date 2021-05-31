@@ -21,6 +21,10 @@
 #include "kasan.h"
 #include "memory.h"
 
+#if CONFIG_MAX_CPUS == 1
+# define CONFIG_SMP 1
+#endif
+
 /*
 #define THREAD_STACK_BOTTOM(tid) \
 	(ARM64_VA_THREAD_STACKS_START + (PAGE_SIZE * (CONFIG_THREAD_STACK_BLOCKS * ntid)))
@@ -126,8 +130,9 @@ struct virtmem {
 };
 struct mmapped {
 	ptr_t start;
-	int pages;
+	size_t pages;
 	int flags;
+	enum MEMPROT prot;
 };
 
 // The size of each slab entry, it's possible to allocate larger elements, one
@@ -138,6 +143,11 @@ struct userslab {
 	ptr_t start;
 	int slabsz, slabs;
 	struct bm* free;
+};
+
+struct va_region {
+	ptr_t start;
+	ptr_t stop;
 };
 
 struct process {
@@ -162,6 +172,7 @@ struct process {
 	struct userslab* userslab;
 	struct llist* memregions;
 	struct llist* mmapped;
+	struct Vec* varegions;
 	bool keepalive;
 	struct user_thread_info* thread_user_addr;
 };
@@ -280,6 +291,8 @@ struct threads {
 	*/
 	struct llist* waittid;
 
+	struct llist* waitpid;
+
 	/**
 	* If a job is blocked by the driver and we might need to update data
 	* depending on success / failure, then we need to store some information
@@ -387,6 +400,7 @@ typedef void (*poweroff_t)(void);
 * Information about all CPUs on the system.
 */
 struct cpus {
+	int started;
 	/**
 	* Array of all CPU cores.
 	*
@@ -470,7 +484,7 @@ static inline void* cpu_get_dtb() { return osdata.dtb; }
 static inline ptr_t cpu_get_pgd() { return osdata.kpgd; }
 static inline ptr_t cpu_linear_offset() { return osdata.linear_offset; }
 static inline struct vmmap* cpu_get_vmmap() { return &(osdata.vmmap); }
-
+static inline int cpu_cores_running(void) { return osdata.cpus.started; }
 
 
 
@@ -493,6 +507,13 @@ static inline struct thread* current_thread(void)	{
 	return current_thread_memory();
 }
 #endif
+
+static inline void set_current_thread(struct thread* t)	{
+	curr_cpu()->running = t;
+#ifdef CONFIG_ARCH_FAST_THREAD_ACCESS
+	arch_update_thread_access(t);
+#endif
+}
 
 static inline int current_tid(void) {
 	struct thread* t = current_thread();
@@ -573,11 +594,11 @@ static inline ptr_t* thread_get_user_pgd(struct thread* t) { return (ptr_t*)(t->
 
 
 #if defined(CONFIG_KCOV) && !defined(UMODE)
-static inline struct kcov* get_current_kcov(void) {
+__always_inline static inline struct kcov* get_current_kcov(void) {
 	struct thread* t = current_thread();
 	return PTR_IS_VALID(t) ? t->kcov : NULL;
 }
-static inline void set_current_kcov(struct kcov* kcov) {
+__always_inline static inline void set_current_kcov(struct kcov* kcov) {
 	struct thread* t = current_thread();
 	if(t) t->kcov = kcov;
 }
@@ -768,7 +789,9 @@ int mmu_create_linear(ptr_t start, ptr_t end);
 int thread_downtick(void);
 int thread_write(int fd, const void* buf, size_t count);
 int thread_wait_tid(int tid, bool sched, bool lockheld);
+int thread_wait_pid(int pid);
 int thread_get_tid(void);
+int thread_get_pid(void);
 int thread_tick_sleep(int ticks);
 int thread_ms_sleep(ptr_t ms);
 int thread_sleep(ptr_t seconds);
@@ -788,7 +811,7 @@ int thread_close(int fd);
 int thread_dup(int fd);
 int thread_getchar(int fd);
 int thread_putchar(int fd, int c);
-int thread_lseek(int fd, off_t offset, int whence);
+off_t thread_lseek(int fd, off_t offset, int whence);
 int thread_configure(ptr_t cmd, ptr_t arg);
 int process_configure(ptr_t cmd, ptr_t arg);
 int thread_fstat(int fd, struct stat* statbuf);
@@ -801,6 +824,7 @@ int thread_set_filter(sysfilter_t filter);
 sysfilter_t thread_get_filter(void);
 int thread_getuser(struct user_id* user);
 int thread_setuser(struct user_id* user);
+int thread_region_mapped(ptr_t addr, int bytes, bool mapin);
 
 #define VFS_JOB_READ  1
 #define VFS_JOB_WRITE 2
@@ -889,7 +913,7 @@ extern uint32_t last_driver_uid;
 #endif
 static inline uid_t driver_uid(void)	{
 #if defined(CONFIG_DRIVER_USERID_AUTO_INCREMENT)
-	return (uint32_t)atomic_inc_fetch32(last_driver_uid);
+	return (uint32_t)atomic_inc_fetch32(&last_driver_uid);
 #else
 	return USERID_ROOT;
 #endif
@@ -914,5 +938,32 @@ void kasan_never_freed(void* addr);
 #endif
 
 int kern_write(const char* buf, size_t count);
+
+static inline bool user_ptr_valid(ptr_t va, size_t len)	{
+/*	if(!PTR_ALIGNED(va) || va == 0)	{
+		logi("Received unaligned pointer: %lx\n", va);
+		return false;
+	}*/
+	if(!ADDR_USER(va))	{
+		logi("Received pointer which doesn't belong to user mode: %lx\n", va);
+		return false;
+	}
+	if(!mmu_addr_mapped(va, len, MMU_ALL_MAPPED))	{
+		logi("VA %lx (0x%lx) is not mapped in\n", va, len);
+		return false;
+	}
+	return true;
+}
+static inline bool user_addr_valid(ptr_t va, size_t len)	{
+	if(!ADDR_USER(va) || va == 0)	{
+		logi("Received pointer which doesn't belong to user mode: %lx\n", va);
+		return false;
+	}
+	if(!mmu_addr_mapped(va, len, MMU_ALL_MAPPED))	{
+		logi("VA %lx (0x%lx) is not mapped in\n", va, len);
+		return false;
+	}
+	return true;
+}
 
 #endif

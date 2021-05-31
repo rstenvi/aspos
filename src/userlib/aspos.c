@@ -6,12 +6,18 @@
 #include <unistd.h>
 #include "lib.h"
 #include "vfs.h"
+#ifdef CONFIG_KASAN
+#include "kasan.h"
+#endif
 
 // TODO: Makes sense to move these into kernel to save a syscall
 int seek_read(int fd, void* buf, size_t len, size_t off)	{
-	size_t noff;
+	off_t noff;
 	noff = lseek(fd, off, SEEK_SET);
-	if(noff != off)	return -1;
+	if(noff != off)	{
+		printf("Unable to seek to %lx\n", off);
+		return -1;
+	}
 	return read(fd, buf, len);
 }
 int seek_write(int fd, void* buf, size_t len, size_t off)	{
@@ -45,6 +51,22 @@ int cuse_mount(struct fs_struct* fs, const char* mnt, bool detach)	{
 	}
 	return fd;
 }
+void* mmap(void* addr, size_t len, int prot, int flags, int fd)	{
+	void* ret;
+	ret = _mmap(addr, len, prot, flags, fd);
+#ifdef CONFIG_KASAN
+	if(ret)	kasan_mmap(ret, len);
+#endif
+	return ret;
+}
+int munmap(void* addr)	{
+	int ret = _munmap(addr);
+#ifdef CONFIG_KASAN
+	kasan_munmap(addr);
+#endif
+	return ret;
+}
+
 /*
 // Helper functions to list data in directort
 struct dir_state* flistdir(int fd)	{

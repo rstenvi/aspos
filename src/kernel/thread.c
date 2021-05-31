@@ -8,7 +8,7 @@
 #include "syscalls.h"
 
 static int _munmap_all(struct process* p);
-int _thread_free_memregion(struct process* p, ptr_t addr, int pages);
+int _thread_free_memregion(struct process* p, ptr_t addr, size_t pages);
 int thread_free_slabs(struct process* p, ptr_t addr, int bytes);
 void uthread_exit(void);
 int thread_schedule_cb(int);
@@ -35,6 +35,7 @@ static int _thread_poweroff(struct threads* allt)	{
 	tlist_delete(allt->sleeping);
 	llist_delete(allt->blocked);
 	llist_delete(allt->waittid);
+	llist_delete(allt->waitpid);
 	llist_delete(allt->texitjobs);
 	llist_delete(allt->lowhalfjobs);
 	xifo_delete(allt->ready);
@@ -220,6 +221,9 @@ static int process_init(struct process* proc)	{
 	proc->memregions = llist_alloc();
 	ASSERT_FALSE(PTR_IS_ERR(proc->memregions), "Unable to allocate memregion list");
 
+	proc->varegions = vec_init(8);
+	ASSERT_FALSE(PTR_IS_ERR(proc->varegions), "Unable to allocate varegion list");
+
 	proc->userslab = NULL;
 
 	proc->keepalive = false;
@@ -243,7 +247,7 @@ int _thread_memregion_find_start(struct process* p)	{
 	return start;
 }
 
-int _thread_free_memregion(struct process* p, ptr_t addr, int pages)	{
+int _thread_free_memregion(struct process* p, ptr_t addr, size_t pages)	{
 	struct virtmem* virtm = NULL;
 	int i = 0, idx;
 	ptr_t end;
@@ -259,12 +263,171 @@ int _thread_free_memregion(struct process* p, ptr_t addr, int pages)	{
 	return OK;
 }
 
+struct va_region* _thread_find_varegion(struct process* p, ptr_t va)	{
+	struct va_region* var;
+	int i = 0;
+	while((var = vec_index(p->varegions, i)) != NULL)	{
+		if(va >= var->start && va < var->stop)	break;
+		i++;
+	}
+	return var;
+}
+bool valid_va_region(struct process* p, ptr_t va)	{
+	struct va_region* var = _thread_find_varegion(p, va);
+	return PTR_IS_VALID(var);
+}
+struct va_region* _thread_check_region(struct process* p, ptr_t start, ptr_t stop)	{
+	struct va_region* var = NULL;
+	int i = 0;
+	stop--;
+	while((var = vec_index(p->varegions, i)) != NULL)	{
+		if(start >= var->start && start < var->stop)	break;
+		else if(stop >= var->start && stop < var->stop)	break;
+		i++;
+	}
+	return var;
+}
+int _thread_add_region(struct process* p, ptr_t start, ptr_t stop)	{
+	TZALLOC_ERR(ins, struct va_region);
+	ins->start = start;
+	ins->stop = stop;
+	vec_insert(p->varegions, ins, ins->start);
+	return OK;
+}
+int _thread_remove_all_regions(struct process* p)	{
+	struct va_region* var;
+	while((var = vec_remove_last(p->varegions)) != NULL)	{
+		kfree(var);
+	}
+	return OK;
+}
+ptr_t _thread_find_region(struct process* p, ptr_t size, bool modify)	{
+	struct va_region* var;
+	int i = 0;
+	ptr_t found = 0;
+	ptr_t maxaddr = 1UL << (CONFIG_AARCH64_VA_BITS-1);
+	ptr_t lastaddr = PAGE_SIZE /*0x400000*/;
+
+	while((var = vec_index(p->varegions, i)) != NULL)	{
+		if((lastaddr + size) <= var->start)	{
+			var->start -= size;
+			found = var->start;
+			vec_modkey(p->varegions, i, var->start);
+			break;
+		}
+		else	{
+			lastaddr = var->stop;
+		}
+		i++;
+	}
+	// Check if we have space at the end
+	if(!found && (lastaddr + size) < maxaddr)	{
+		// Place VA at the end
+		found = maxaddr - size;
+		if(modify)	{
+			_thread_add_region(p, found, found + size);
+		}
+	}
+	return found;
+
+}
+int thread_region_mapped(ptr_t addr, int bytes, bool mapin)	{
+	struct process* p = current_proc();
+	if(PTR_IS_ERR(p))	return 0;
+	int ret = 0, i = 0;
+	struct va_region* var;
+
+	mutex_acquire(&p->lock);
+	while(ret < bytes && (var = vec_index(p->varegions, i)) != NULL)	{
+		if(addr >= var->start && addr < var->stop)	{
+			ret += MIN(bytes, var->stop - addr);
+		}
+		i++;
+	}
+	if(ret == bytes && mapin)	{
+		// TODO: Need to get permission from mmapped-region
+		ptr_t naddr = GET_ALIGNED_PAGE_DOWN(addr);
+		int rest = bytes;
+		while(rest > 0)	{
+			mmu_map_page_pgd((ptr_t*)p->user_pgd, naddr, PROT_RW);
+			naddr += PAGE_SIZE;
+			if(ALIGNED_PAGE(addr))	{
+				rest -= MIN(PAGE_SIZE, rest);
+				addr += PAGE_SIZE;
+			}
+			else	{
+				rest -= MIN(GET_ALIGNED_PAGE_UP(addr) - addr, rest);
+				addr = GET_ALIGNED_PAGE_UP(addr);
+			}
+		}
+	}
+	mutex_release(&p->lock);
+	return ret;
+}
+
+int _thread_unmap_user(struct process* p, ptr_t addr, ptr_t len)	{
+	struct va_region* var = _thread_find_varegion(p, addr);
+	int res = OK;
+	if(PTR_IS_ERR(var))	{
+		logw("Unable to find memory region to unmap: %lx - 0x%lx\n", addr, len);
+		res = -GENERAL_FAULT;
+	}
+	else	{
+		// We can remove it directly
+		if(var->start == addr && var->stop == (addr + len))	{
+			vec_remove(p->varegions, var->start);
+			kfree(var);
+		}
+		// We need to remove the beginning
+		else if(var->start == addr)	{
+			var->start += len;
+		}
+		// We need to remove the end
+		else if((addr + len) == var->stop)	{
+			var->stop = addr;
+		}
+		// Need to split in two 
+		else	{
+			// Add second half
+			_thread_add_region(p, (addr+len), var->stop);
+
+			// Modify current to be first half
+			var->stop = addr;
+		}
+	}
+	mmu_unmap_pages_pgd((ptr_t*)p->user_pgd, addr, len / PAGE_SIZE);
+	return 0;
+}
+
+ptr_t _thread_map_user(struct process* p, ptr_t addr, ptr_t len, enum MEMPROT prot, bool mapin)	{
+	size_t pages = len / PAGE_SIZE;
+	struct va_region* v1, * v2;
+
+	if(addr != 0)	{
+		if(!PTR_IS_ERR(_thread_check_region(p, addr, addr + len)))	{
+			logw("Tried to map in region which is already allocated: %lx - 0x%lx\n", addr, len);
+			return 0;
+		}
+
+		_thread_add_region(p, addr, addr + len);
+	}
+	else	{
+		addr = _thread_find_region(p, len, true);
+	}
+
+	if(mapin)	{
+		mmu_map_pages_pgd((ptr_t*)p->user_pgd, addr, pages, prot);
+	}
+	return addr;
+}
+
 int thread_dealloc_memregionss(struct process* p)	{
 	struct virtmem* virtm = NULL;
 
 	mutex_acquire(&p->lock);
 	while((virtm = llist_first(p->memregions, true, NULL)) != NULL)	{
-		mmu_unmap_pages_pgd((ptr_t*)p->user_pgd, virtm->start, virtm->pages);
+		_thread_unmap_user(p, virtm->start, virtm->pages * PAGE_SIZE);
+		//mmu_unmap_pages_pgd((ptr_t*)p->user_pgd, virtm->start, virtm->pages);
 		bm_delete(virtm->free);
 	}
 	mutex_release(&p->lock);
@@ -272,7 +435,7 @@ int thread_dealloc_memregionss(struct process* p)	{
 	return OK;
 }
 
-struct virtmem* _thread_alloc_memregion(struct process* p, int pages)	{
+struct virtmem* _thread_alloc_memregion(struct process* p, size_t pages)	{
 	ALIGN_UP_POW2(pages, 8);
 	TZALLOC(virtm, struct virtmem);
 	int start = _thread_memregion_find_start(p);
@@ -287,7 +450,7 @@ struct virtmem* _thread_alloc_memregion(struct process* p, int pages)	{
 	virtm->free = bm_create(pages / 8);
 	return virtm;
 }
-
+/*
 ptr_t _thread_find_user_memregion(struct process* p, int pages)	{
 	struct virtmem* virtm = NULL;
 	int i = 0;
@@ -307,7 +470,7 @@ ptr_t _thread_find_user_memregion(struct process* p, int pages)	{
 	struct virtmem* vm = _thread_alloc_memregion(p, apages);
 	llist_insert(p->memregions, vm, vm->start);
 	return _thread_find_user_memregion(p, pages);
-}
+}*/
 
 int _thread_destroy_userslab(struct process* p)	{
 	struct userslab* slab = p->userslab;
@@ -317,11 +480,13 @@ int _thread_destroy_userslab(struct process* p)	{
 	kfree(slab);
 	return OK;
 }
-struct userslab* _thread_alloc_userslab(struct process* p, int pages, int slabsz)	{
+struct userslab* _thread_alloc_userslab(struct process* p, size_t pages, int slabsz)	{
 	TZALLOC(slab, struct userslab);
 	ptr_t addr;
 
-	addr = _thread_find_user_memregion(p, pages);
+	addr = _thread_map_user(p, 0, pages * PAGE_SIZE, PROT_RW, false);
+	//addr = _thread_find_region(p, pages * PAGE_SIZE, true);
+//	addr = _thread_find_user_memregion(p, pages);
 	slab->start = addr;
 	slab->slabsz = slabsz;
 	slab->slabs = (PAGE_SIZE * pages) / slabsz;
@@ -388,6 +553,9 @@ int init_threads()	{
 
 	t->waittid = llist_alloc();
 	ASSERT_FALSE(PTR_IS_ERR(t->waittid), "Unable to allocate list");
+
+	t->waitpid = llist_alloc();
+	ASSERT_FALSE(PTR_IS_ERR(t->waitpid), "Unable to allocate list");
 
 	t->texitjobs = llist_alloc();
 	ASSERT_FALSE(PTR_IS_ERR(t->texitjobs), "Unable to allocate list");
@@ -474,16 +642,15 @@ struct thread* new_thread_kernel(struct process* p, ptr_t entry, ptr_t exit, boo
 		 * and setting stack pointer to 0.
 		 */
 
-		t->ustack = mmu_create_user_stack((ptr_t*)p->user_pgd, CONFIG_THREAD_STACK_BLOCKS);
-		t->ustack += (PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS);
-		/*
-		mmu_map_pages(
-			THREAD_STACK_BOTTOM(ntid),
-			CONFIG_THREAD_STACK_BLOCKS,
-			PROT_RW
-		);
-		t->ustack = THREAD_STACK_TOP(ntid);
-		*/
+		// Allocate a stack with some room to grow
+#define STACK_TOTAL_SIZE ((PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS * 2))
+#define STACK_ALLOC_SIZE ((PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS * 1))
+		t->ustack = _thread_find_region(p, STACK_TOTAL_SIZE, true);
+		t->ustack += STACK_TOTAL_SIZE;
+		ptr_t mmap = (t->ustack - STACK_ALLOC_SIZE);
+		mmu_map_pages_pgd((ptr_t*)p->user_pgd, mmap, STACK_ALLOC_SIZE / PAGE_SIZE, PROT_RW);
+//		t->ustack = mmu_create_user_stack((ptr_t*)p->user_pgd, CONFIG_THREAD_STACK_BLOCKS);
+//		t->ustack += (PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS);
 	}
 
 	t->stackptr = arch_prepare_thread_stack((void*)(t->kstack), entry, t->ustack, user);
@@ -521,11 +688,11 @@ struct thread* thread_copy_thread(struct process* p, struct thread* _t)	{
 //	_copy_stack((ptr_t*)p->user_pgd, t->ustack, _t->ustack, CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE);
 
 	_copy_kstack(t->kstack, _t->kstack, CONFIG_EXCEPTION_STACK_BLOCKS * PAGE_SIZE);
-	t->kstack = _t->kstack;
-/*
+	//t->kstack = _t->kstack;
+
 	ptr_t stackoffset = _t->kstack - _t->stackptr;
 	t->stackptr = t->kstack - stackoffset;
-
+/*
 	arch_update_after_copy((ptr_t*)p->user_pgd, t->kstack, t->ustack, _t->kstack, _t->ustack, t->stackptr, _t->stackptr);
 */
 //	arch_thread_set_exit((void*)t->stackptr, allt->thread_exit);
@@ -551,6 +718,7 @@ int thread_new_main(void)	{
 	struct threads* allt = cpu_get_threads();
 	struct thread* t;
 	struct process* p;
+	int i;
 
 #if defined(CONFIG_MULTI_PROCESS)
 	// Get process, but don't remove it from list
@@ -581,25 +749,30 @@ int thread_new_main(void)	{
 	exe->regions[nidx].start = nextbase;
 	exe->regions[nidx].size = PAGE_SIZE;
 	exe->regions[nidx].prot = PROT_RW;
+	for(i = 0; i <= nidx; i++)	{
+		//_thread_map_user(p, nextbase, PAGE_SIZE, PROT_RW, true);
+		// Need to mark virtual memory as taken, but nextbase is the only addr we're actually mapping in
+		_thread_map_user(p, exe->regions[i].start, exe->regions[i].size, exe->regions[i].prot, (i == nidx));
+	}
 
 	// Store pointer to exe loaded
-
 	p->exe = exe;
 
 	t = new_thread_kernel(p, exe->entry, allt->thread_exit, true, true);
 	t->owner = p;
 
+#if defined(CONFIG_MULTI_PROCESS)
 	mutex_acquire(&p->lock);
 	p->num_threads++;
 	mutex_release(&p->lock);
+#endif
 
-	mmu_map_pages_pgd((ptr_t*)p->user_pgd, nextbase, 1, PROT_RW);
-//	mmu_map_page(nextbase, PROT_RW);
+//	mmu_map_pages_pgd((ptr_t*)p->user_pgd, nextbase, 1, PROT_RW);
 	mmu_memset((ptr_t*)p->user_pgd, (void*)nextbase, 0x00, PAGE_SIZE);
 
 	char* argv, * sep;
 	ptr_t* argvptrs = (ptr_t*)nextbase;
-	int numargs = 0, i, len;
+	int numargs = 0, len;
 	void* data;
 
 	// args is in "chosen" -> "bootargs"
@@ -676,19 +849,19 @@ int thread_schedule_next(ptr_t unmap)	{
 	t = (struct thread*)xifo_pop_front(allt->ready);
 	if(t == NULL)	{
 		if(c->running == NULL)	{
-			logd("Switching busyloop on %i\n", c->cpuid);
+			//logd("Switching busyloop on %i\n", c->cpuid);
 			c->running = allt->busyloop;
 			c->state = BUSYLOOP;
 			goto schedule;
 		}
 		else if(c->running == allt->busyloop)	{
-			logd("Continuing busyloop on %i\n", c->cpuid);
+			//logd("Continuing busyloop on %i\n", c->cpuid);
 			c->state = BUSYLOOP;
 			goto noschedule;
 		}
 		else	{
 			// Continue executing c->running
-			logd("No switch performed on %i\n", c->cpuid);
+			//logd("No switch performed on %i\n", c->cpuid);
 			goto noschedule;
 		}
 	}
@@ -731,7 +904,8 @@ noschedule:
 }
 
 int thread_tick_sleep(int ticks)	{
-	logd("sleeping %i\n", ticks);
+	if(ticks <= 0)	return -USER_FAULT;
+
 	struct threads* allt = cpu_get_threads();
 	struct cpu* c = curr_cpu();
 	struct thread* s = c->running;
@@ -748,6 +922,7 @@ int thread_tick_sleep(int ticks)	{
 
 int thread_ms_sleep(ptr_t ms)	{
 	// Calculate as number of ticks and use that API
+	if(ms <= 0)	return -USER_FAULT;
 	int ticks = (ms / CONFIG_TIMER_MS_DELAY);
 	if((ms % CONFIG_TIMER_MS_DELAY) != 0)	ticks++;
 	return thread_tick_sleep(ticks);
@@ -794,6 +969,8 @@ static void _thread_proc_exit(struct threads* allt, struct process* p)	{
 	logi("destroying proc %i\n", p->pid);
 	struct process* _p = llist_remove(allt->procs, p->pid);
 	struct thread_fd_open* fdo;
+	struct thread* t;
+	int pid = p->pid;
 	ASSERT_VALID_PTR(_p);
 	ASSERT(_p == p);
 
@@ -813,6 +990,10 @@ static void _thread_proc_exit(struct threads* allt, struct process* p)	{
 	_munmap_all(p);
 	llist_delete(p->mmapped);
 
+	_thread_remove_all_regions(p);
+	vec_destroy(p->varegions);
+
+
 	// Unmap all user-space addresses
 	mmu_unmap_user((ptr_t*)p->user_pgd);
 
@@ -825,6 +1006,11 @@ static void _thread_proc_exit(struct threads* allt, struct process* p)	{
 		// when all processes has finished
 		kfree(p->exe->regions);
 		kfree(p->exe);
+	}
+
+	while( (t = (struct thread*)llist_remove(allt->waitpid, pid)) != NULL)  {
+		arch_thread_set_return((void*)(t->stackptr), 0);
+		xifo_push_back(allt->ready, t);
 	}
 
 	kfree(p);
@@ -844,14 +1030,17 @@ int _remap_num_pages(ptr_t addr, int len)	{
 	return ((end - start) / PAGE_SIZE) + 1;
 }
 static ptr_t __remap_sys_shared(struct thread* t, struct process* curr, struct process* p, ptr_t addr, int size, bool write)	{
-	int pages, i;
+	size_t pages, i;
 	struct threads* allt = cpu_get_threads();
 	ptr_t naddr, ret, _tmp = addr, _addr, oa, entry;
 	ALIGN_DOWN_POW2(_tmp, PAGE_SIZE);
 
 	pages = _remap_num_pages(addr, size);
 
-	naddr = _thread_find_user_memregion(p, pages);
+	// Find some available space
+	naddr = _thread_map_user(p, 0, pages * PAGE_SIZE, PROT_RW, false);
+	//naddr = _thread_find_region(p, pages * PAGE_SIZE, true);
+//	naddr = _thread_find_user_memregion(p, pages);
 
 	ptr_t diff = (addr - _tmp);;
 	ret = (naddr + diff);
@@ -935,12 +1124,33 @@ int thread_create_driver_thread(struct thread_fd_open* fdo, ptr_t entry, int sys
     t = new_thread_kernel(p, entry, allt->exc_exit, true, false);
     if(PTR_IS_ERR(t))   return PTR_TO_ERRNO(t);
 	t->owner = p;
+#if defined(CONFIG_MULTI_PROCESS)
 	p->num_threads++;
+#endif
 
 #if defined(CONFIG_KCOV)
 	// We want to track the caller kcov
 	struct kcov* k = get_current_kcov();
-	if(PTR_IS_VALID(k))	t->tinfo.caller_kcov = k->data;
+
+	// if kcov context exist
+	if(PTR_IS_VALID(k))	{
+		// If not already mapped in
+		if(t->tinfo.caller_kcov == NULL)	{
+			size_t pages = ((get_user_u32(&(k->data->maxcount)) + 1) / 8) / PAGE_SIZE;
+			ptr_t addr = _thread_map_user(p, 0, pages * PAGE_SIZE, PROT_RW, false);
+			if(addr == 0)	{
+				PANIC("Unable to map in space for kcov");
+			}
+			mmu_double_map_pages(
+				(ptr_t*)cpu_get_user_pgd(),	// from pgd
+				thread_get_user_pgd(t),		// to pgd
+				(ptr_t)k->data,				// from VA
+				addr,						// to VA
+				pages
+			);
+			t->tinfo.caller_kcov = (struct kcov_data*)addr;
+		}
+	}
 #endif
 
     // Add the necessary arguments
@@ -1029,12 +1239,15 @@ int thread_exit(ptr_t ret)	{
 
 
 	kstack = t->kstack - PAGE_SIZE;
-	mmu_unmap_pages(
+	/*mmu_unmap_pages(
 		t->ustack - (PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS),
 		CONFIG_THREAD_STACK_BLOCKS
 	);
+	*/
+	_thread_unmap_user(t->owner, t->ustack - (PAGE_SIZE * CONFIG_THREAD_STACK_BLOCKS), CONFIG_THREAD_STACK_BLOCKS * PAGE_SIZE);
 
-	c->running = NULL;
+	set_current_thread(NULL);
+	//c->running = NULL;
 	kfree(t);
 
 
@@ -1053,7 +1266,7 @@ int thread_exit(ptr_t ret)	{
 
 #if defined(CONFIG_EXIT_WHEN_NO_THREADS)
 	// Check if there are any threads which can do something
-	if(!xifo_count(allt->ready) && tlist_empty(allt->sleeping) && llist_empty(allt->blocked) && llist_empty(allt->waittid))
+	if(!xifo_count(allt->ready) && tlist_empty(allt->sleeping) && llist_empty(allt->blocked) && llist_empty(allt->waittid) && llist_empty(allt->waitpid))
 		_thread_poweroff(allt);
 #endif
 
@@ -1066,6 +1279,7 @@ int thread_exit(ptr_t ret)	{
 
 
 static int block_current(void)	{
+	logd("thread blocked by %p\n", __builtin_return_address(0));
 	struct thread* t;
 	struct threads* allt = cpu_get_threads();
 	struct cpu* c = curr_cpu();
@@ -1201,41 +1415,47 @@ static inline bool check_permission(struct user_id* user, struct user_id* owner,
 	return ((allowed & flags) == flags);
 }
 
+int _mmap_add(struct process* p, struct mmapped* add)	{
+	struct mmapped* ins = kmalloc( sizeof(struct mmapped) );
+	if(PTR_IS_ERR(ins))	{
+		return -MEMALLOC;
+	}
+	memcpy(ins, add, sizeof(struct mmapped));
+	llist_insert(p->mmapped, ins, ins->start);
+	return OK;
+}
 ptr_t thread_mmap_mem(void* addr, size_t length, enum MEMPROT prot, int flags, bool ins)	{
 	struct process* p = current_proc();
-	int pages;
+	size_t pages;
 	ptr_t ret = 0;
+	bool mapin = !(FLAG_SET(flags, MAP_LAZY_ALLOC));
+
 	if(addr == NULL)	{
 		ALIGN_UP_POW2(length, PAGE_SIZE);
 		pages = length / PAGE_SIZE;
-		mutex_acquire(&p->lock);
-		ret = mmu_find_available_space((ptr_t*)p->user_pgd, pages, prot, true);
-		mutex_release(&p->lock);
 	}
 	else	{
 		ptr_t naddr = GET_ALIGNED_DOWN_POW2((ptr_t)addr, PAGE_SIZE);
 		ptr_t nend = GET_ALIGNED_UP_POW2((ptr_t)addr + length, PAGE_SIZE);
 		pages = (nend - naddr) / PAGE_SIZE;
 
-		if(mmu_addr_mapped(naddr, (nend - naddr), MMU_ALL_UNMAPPED))	{
-			mutex_acquire(&p->lock);
-			mmu_map_pages_pgd((ptr_t*)p->user_pgd, naddr, pages, prot);
-			mutex_release(&p->lock);
-			ret = naddr;
+		// Check if caller has asked for a memory region already taken
+		if(!PTR_IS_ERR(_thread_check_region(p, naddr, nend)))	{
+			return 0;
 		}
-		else	{
-			return thread_mmap_mem(NULL, length, prot, flags, ins);
-		}
+		addr = (void*)naddr;
 	}
+		
+	mutex_acquire(&p->lock);
+	ret = _thread_map_user(p, (ptr_t)addr, pages * PAGE_SIZE, prot, mapin);
+	mutex_release(&p->lock);
+
 	// TODO: Should allow mapping at NULL-address
 	if(ret > 0 && ins)	{
-		struct mmapped* ins = kmalloc( sizeof(struct mmapped) );
-		ASSERT_VALID_PTR(ins);
-		ins->start = ret;
-		ins->pages = pages;
-		ins->flags = flags;
-		llist_insert(p->mmapped, ins, ins->start);
+		struct mmapped ins = {ret, pages, flags, prot};
+		_mmap_add(p, &ins);
 	}
+
 	return ret;
 }
 
@@ -1267,6 +1487,12 @@ ptr_t thread_mmap(void* addr, size_t length, int _prot, int flags, int fd)	{
 		}
 	}
 
+	// Lazy alloc w/o write access is pointless as the memory would never be
+	// mapped in
+	if(FLAG_SET(flags, MAP_LAZY_ALLOC) && !FLAG_SET(_prot, MAP_PROT_WRITE))	{
+		return -USER_FAULT;
+	}
+
 	prot = _mmap_to_memprot(_prot);
 	if(fd >= 0)	{
 		fdo = llist_find(p->fds, fd);
@@ -1285,7 +1511,8 @@ ptr_t thread_mmap(void* addr, size_t length, int _prot, int flags, int fd)	{
 
 
 static int _munmap_entry(struct process* p, struct mmapped* mm)	{
-	mmu_unmap_pages_pgd((ptr_t*)p->user_pgd, mm->start, mm->pages);
+	//mmu_unmap_pages_pgd((ptr_t*)p->user_pgd, mm->start, mm->pages);
+	_thread_unmap_user(p, mm->start, mm->pages * PAGE_SIZE);
 	kfree(mm);
 	return OK;
 }
@@ -1319,6 +1546,9 @@ int thread_open(const char* name, int flags, int mode)	{
 	struct process* p = current_proc();
 	struct user_id* user, *owner;
 
+	if(!ADDR_USER(name))					return -USER_FAULT;
+	if(!valid_va_region(p, (ptr_t)name))	return -USER_FAULT;
+
 	// Check if flag combination is valid. This is coarse check, the driver may
 	// have additional requirements.
 	if(!open_flags_valid(flags))	return -USER_FAULT;
@@ -1340,12 +1570,14 @@ int thread_open(const char* name, int flags, int mode)	{
 		goto err1;
 	}
 	user = &(p->user->real);
+#if defined(CONFIG_SUPPORT_USERS)
 	owner = &(fs->owner);
 
 	if(!(check_permission(user, owner, fs->perm, flags)))	{
 		res = -NO_ACCESS;
 		goto err1;
 	}
+#endif
 
 	nfd = fileid_unique();
 
@@ -1577,10 +1809,7 @@ int thread_write(int fd, const void* buf, size_t count)	{
 	struct process* p = current_proc();
 	struct threads* allt = cpu_get_threads();
 
-	if(!ADDR_USER_MEM(buf, count))	{
-		logw("Tried to write from kernel addr: %p (%x)\n", buf, count);
-		return -USER_FAULT;
-	}
+	if(!user_addr_valid((ptr_t)buf, count))	return -USER_FAULT;
 
 	ASSERT_TRUE(p, "p == NULL");
 	fdo = llist_find(p->fds, fd);
@@ -1593,28 +1822,6 @@ int thread_write(int fd, const void* buf, size_t count)	{
 
 	return res;
 }
-/*
-static int _thread_mmap_fd(int fd, void* addr, size_t len)	{
-	struct threads* allt = cpu_get_threads();
-	struct vfsopen* o;
-	o = llist_find(allt->proc.fds, fd);
-	if(PTR_IS_ERR(o))		return -USER_FAULT;
-	return vfs_mmap(o, addr, len);
-}
-static int _thread_mmap_mem(void* addr, size_t len)	{
-	PANIC("not implemented yet\n");
-}
-int thread_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)	{
-	// TODO: Should allow NULL-ptr in the future
-	if(addr == NULL || !ADDR_USER(addr))	return -USER_FAULT;
-	if(fd >= 0)	{
-		return _thread_mmap_fd(fd, addr, len);
-	}
-	else	{
-		return _thread_mmap_mem(addr, len);
-	}
-}
-*/
 int thread_read(int fd, void* buf, size_t count)	{
 	int i, res = OK;
 	struct vfsopen* o;
@@ -1623,10 +1830,7 @@ int thread_read(int fd, void* buf, size_t count)	{
 	struct threads* allt = cpu_get_threads();
 	char* b = (char*)buf;
 
-	if(!ADDR_USER_MEM(buf, count))	{
-		logw("Tried to read from kernel addr: %p (%x)\n", buf, count);
-		return -USER_FAULT;
-	}
+	if(buf != NULL && !user_addr_valid((ptr_t)buf, count))	return -USER_FAULT;
 
 	ASSERT_TRUE(p, "p == NULL");
 	fdo = llist_find(p->fds, fd);
@@ -1639,8 +1843,8 @@ int thread_read(int fd, void* buf, size_t count)	{
 	return res;
 }
 
-int thread_lseek(int fd, off_t offset, int whence)	{
-	int res = OK;
+off_t thread_lseek(int fd, off_t offset, int whence)	{
+	off_t res = OK;
 	struct vfsopen* o;
 	struct thread_fd_open* fdo;
 	struct threads* allt = cpu_get_threads();
@@ -1652,7 +1856,12 @@ int thread_lseek(int fd, off_t offset, int whence)	{
 
 	res = vfs_lseek(fdo, offset, whence);
 
-	if(res < 0)	_handle_retcode(res);
+/*
+	if(res < 0)	{
+		logi("TODO: lseek returned error, possibly a bug in signedness\n");
+		_handle_retcode(res);
+	}
+	*/
 
 	return res;
 }
@@ -1792,16 +2001,28 @@ int thread_putchar(int fd, int c)	{
 }
 
 int _copy_mmapped(struct process* p, struct process* old)	{
-	struct mmapped* mm = NULL;
+	struct mmapped* mm = NULL, * nmm;
 	int i = 0;
 	while((mm = llist_index(old->mmapped, i)) != NULL)	{
 		if(FLAG_SET(mm->flags, MAP_NON_CLONED))	{
 			mmu_copy_cloned_pages(mm->start, mm->pages, (ptr_t*)old->user_pgd, (ptr_t*)p->user_pgd);
 		}
-		llist_insert(p->mmapped, mm, mm->start);
+		nmm = (struct mmapped*)kmalloc( sizeof(struct mmapped) );
+		memcpy(nmm, mm, sizeof(struct mmapped));
+		llist_insert(p->mmapped, nmm, nmm->start);
 		i++;
 	}
-
+	return OK;
+}
+int _copy_varegions(struct process* p, struct process* old)	{
+	struct va_region* var = NULL, *vn;
+	int i = 0;
+	while((var = vec_index(old->varegions, i)) != NULL)	{
+		vn = (struct va_region*)kmalloc(sizeof(struct va_region));
+		memcpy(vn, var, sizeof(struct va_region));
+		vec_insert(p->varegions, vn, vn->start);
+		i++;
+	}
 	return OK;
 }
 /*
@@ -1857,6 +2078,7 @@ int thread_fork(void)	{
 
 	// Clone all the mmapped regions so that child also can unmap them
 	_copy_mmapped(p, old);
+	_copy_varegions(p, old);
 
 	//mmu_map_pages_pgd((ptr_t*)p->user_pgd, ustack, CONFIG_THREAD_STACK_BLOCKS, PROT_RW);
 
@@ -1890,7 +2112,33 @@ err0:
 int thread_get_tid(void)	{
 	return curr_cpu()->running->id;
 }
+int thread_get_pid(void)	{
+	struct process* p = current_proc();
+	return PTR_IS_VALID(p) ? p->pid : -1;
+}
 
+int thread_wait_pid(int pid)	{
+	struct threads* allt = cpu_get_threads();
+	struct cpu* c = curr_cpu();
+	struct thread* t;
+	int res = USER_FAULT;
+	if(bm_index_free(allt->procids, pid))	{
+		goto done;
+	}
+	res = OK;
+	mutex_acquire(&allt->lock);
+
+	t = c->running;
+	res = llist_insert(allt->waitpid, t, pid);
+
+	// Avoid returing on this thread
+	set_current_thread(NULL);
+
+	mutex_release(&allt->lock);
+	thread_schedule_next(0);
+done:
+	return res;
+}
 int thread_wait_tid(int tid, bool sched, bool lockheld)	{
 	struct threads* allt = cpu_get_threads();
 	struct cpu* c = curr_cpu();
@@ -1938,6 +2186,7 @@ int thread_wakeup(int tid, ptr_t res)	{
 
 	t = llist_remove(allt->blocked, tid);
 	if(PTR_IS_ERR(t))	{
+		logw("tid: %i | error: %i\n", tid, PTR_TO_ERRNO(t));
 		BUG("Tried to wakeup thread which is not blocked\n");
 		ret = -GENERAL_FAULT;
 		goto done;
@@ -1976,13 +2225,17 @@ int thread_schedule_cb(int irqno)	{
 	return thread_schedule_next(0);
 }
 
+
 int thread_setuser(struct user_id* user)	{
 #if defined(CONFIG_SUPPORT_USERS)
+	if(!user_ptr_valid((ptr_t)user, sizeof(struct user_id)))	return -USER_FAULT;
+
 	struct process* p = current_proc();
-	struct user_id id, *cid = &(p->user->real);
+	struct user_id id;
+	struct user_id* cid = &(p->user->real);
 	if(memcpy_from_user(&id, user, sizeof(struct user_id)))	return -USER_FAULT;
 
-	if(cid == USERID_ROOT)	{
+	if(cid->uid == USERID_ROOT)	{
 		memcpy(cid, &id, sizeof(struct user_id));
 		return OK;
 	}
@@ -1993,8 +2246,11 @@ int thread_setuser(struct user_id* user)	{
 }
 int thread_getuser(struct user_id* user)	{
 #if defined(CONFIG_SUPPORT_USERS)
+	if(!user_ptr_valid((ptr_t)user, sizeof(struct user_id)))	return -USER_FAULT;
+
 	struct process* p = current_proc();
-	if(memcpy_from_user(&(p->user), user, sizeof(struct user_id)))	return -USER_FAULT;
+
+	if(memcpy_to_user(user, &(p->user->real), sizeof(struct user_id)))	return -USER_FAULT;
 
 	return OK;
 #else
@@ -2031,10 +2287,3 @@ bool thread_access_valid(int sysno)	{
 #endif
 }
 
-/*
-int thread_proc_keepalive(void)	{
-	struct process* p = current_proc();
-	p->keepalive = true;
-	return OK;
-}
-*/

@@ -16,6 +16,7 @@ OBJ += test.o
 OBJ += network.o
 OBJ += netcat.o
 OBJ += shell.o
+OBJ += fuzzer.o
 
 PROGS := $(OBJ:.o=)
 
@@ -30,6 +31,10 @@ network.o: CFLAGS += -DLWIP_USER=1
 netcat.o: CFLAGS += -DLWIP_USER=1
 netcat: EXTRALIBS += -llwip4
 network: EXTRALIBS += -llwip4
+
+ifdef CONFIG_KCOV
+fuzzer.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+endif
 
 %: %.o
 	 $(LD) $(LDFLAGS) $^ -o $@ $(EXTRALIBS) $(LDLIBS)

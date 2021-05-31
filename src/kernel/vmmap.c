@@ -17,6 +17,10 @@ int init_vmmap(void)	{
 
 	// Map a single kernel page to store bitmap
 	mmu_map_page(VMMAP_START, PROT_RW);
+	barrier();
+	smp_mb();
+	uint64_t* r = (uint64_t*)VMMAP_START;
+	uint64_t ss = READ_ONCE(*r);
 
 	// Say to bitmap lib where it should be located and 
 	// how many bytes we have
@@ -28,7 +32,7 @@ int init_vmmap(void)	{
 	// the whole VMMAP region.
 	bm_set(&(vmmap->bm), 0, bmreserve);
 
-	return 0;
+	return ss;
 }
 
 static ptr_t find_phys_contiguous(struct vmmap* v, int pages)	{

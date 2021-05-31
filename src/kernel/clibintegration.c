@@ -19,16 +19,17 @@ void* __sbrk(int increment, bool user, struct sbrk* brk)	{
 	void* ret = (void*)-1;
 	mutex_acquire(&brk->lock);
 	if(brk->addr == NULL)	{
-		PANIC("_sbrk called before being initialized\n");
+		if(!user) PANIC("_sbrk called before being initialized\n");
 		goto done;
-		return (void*)-1;
 	}
 
-	if(increment < 0)	{
+	if(increment == 0)	{
+		ret = (void*)(brk->addr + brk->curroffset);
+	}
+	else if(increment < 0)	{
 		// TODO: Should also free up some memory here
-		// TODO: Unsure what address to return
 		brk->curroffset -= increment;
-		PANIC("brk decrement");
+		ret = (void*)(brk->addr + brk->curroffset);
 	}
 
 	// Check if we have mapped in page
@@ -63,7 +64,8 @@ void* __sbrk(int increment, bool user, struct sbrk* brk)	{
 		goto done;
 	}
 	else	{
-		PANIC("Kernel has attempted to allocate more memory than reserved\n");
+		char* mode = (user) ? "user" : "kernel";
+		logw("%s attempted to allocate more memory than reserved\n", mode);
 		goto done;
 	}
 done:
@@ -150,4 +152,12 @@ int _close(int fd)	{
 double __trunctfdf2(long double a) {
 	PANIC("Not implemented");
 }
-
+/*
+void* memset(void* s, int c, size_t n)	{
+	size_t i;
+	for(i = 0; i < n; i++)	{
+		*((uint8_t*)(s + i)) = c;
+	}
+	return s;
+}
+*/

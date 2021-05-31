@@ -78,11 +78,18 @@ _start:
 	bl mmu_early_init
 
 	/* Enable MMU */
+	dsb ish
 	isb
-	mrs x0, sctlr_el1
-	orr x0, x0, 1
+/*	mrs x0, sctlr_el1 */
+	eor x0, x0, x0
+	orr x0, x0, 1			/* MMU enable */
+	orr x0, x0, #(1 << 2)	/* cache enable */
+	/*orr x0, x0, #(1 << 12)*/	/* Instruction access cacheability */
+	orr x0, x0, #(1 << 23)	/* SPAN */
 	msr sctlr_el1, x0
 	isb
+
+	clrex
 
 	/*
 	* Call main

@@ -14,6 +14,7 @@ extern uint64_t IMAGE_END;
 extern uint64_t USER_START;
 extern uint64_t USER_END;
 extern uint64_t user_pgd;
+extern uint64_t IMAGE_INIT_END;
 
 // All kernel segments
 extern uint64_t KERNEL_TEXT_START;
@@ -75,9 +76,9 @@ int __no_ubsan __attribute__((__section__(".init.text"))) mmu_init_kernel(ptr_t 
 		ptr_t tmp = (ptr_t)paddr;
 		tmp += (i * PAGE_SIZE);
 		tmp &= ARM64_MMU_OA_MASK;
-		kptd[i] = tmp;
-		kptd[i] |= ARM64_MMU_ENTRY_NEXT_PAGE;
-		kptd[i] |= ARM64_MMU_ENTRY_KERNEL_RWX;
+		kptd[i] = tmp | ARM64_MMU_ENTRY_NEXT_PAGE | ARM64_MMU_ENTRY_KERNEL_RWX;
+//		kptd[i] |= ARM64_MMU_ENTRY_NEXT_PAGE;
+//		kptd[i] |= ARM64_MMU_ENTRY_KERNEL_RWX;
 	}
 	return 0;
 }
@@ -112,12 +113,24 @@ void __no_ubsan __attribute__((__section__(".init.text"))) mmu_early_init(ptr_t 
 		ARM64_REG_TCR_T0SZ_INIT |
 		ARM64_REG_TCR_T1SZ | 
 		ARM64_REG_TCR_TG0 | 
+	/*	ARM64_REG_TCR_TG1 | */
 		ARM64_REG_TCR_IPS
 	);
 
 	mmu_init_kernel(kernfirst + real_load, real_load);
+
 	// Write ttbr1
 	write_sysreg_ttbr1(ttbr1);
+
+	/*
+	* [0] normal memory fully cacheable
+	* [1] Device nGnRnE memory
+	* [2] normal memory inner/outer non-cacheable
+	*/
+	//uint64_t mair = 0x0044UL;
+	//uint64_t mair = 0x4400ffUL;
+	uint64_t mair = 0x4400ffUL;
+	asm("msr mair_el1, %0" : : "r"(mair));
 }
 
 /**
@@ -136,6 +149,15 @@ static ptr_t mmu_copy_page(ptr_t* page)	{
 	memcpy((void*)(pt + cpu_linear_offset()), page, PAGE_SIZE);
 	return pt;
 }
+__always_inline static inline void mmu_tlbflush_addr(ptr_t addr)	{
+	ptr_t vaddr = GET_ALIGNED_DOWN_POW2(addr, PAGE_SIZE);
+	asm volatile(
+		"dsb ish\n" \
+		"tlbi vae1, %0\n" \
+		"dsb ish\n" \
+		"isb" : : "r"(vaddr)
+	);
+}
 
 static uint64_t* mmu_check_entry(uint64_t* pt, int idx, bool create)	{
 	ptr_t ret;
@@ -143,6 +165,31 @@ static uint64_t* mmu_check_entry(uint64_t* pt, int idx, bool create)	{
 		if(create)	{
 			ret = mmu_create_table();
 			pt[idx] = ret | ARM64_MMU_ENTRY_NEXT_TBL;
+			uint64_t inv = (uint64_t)pt + (idx * 8);
+			mmu_tlbflush_addr(inv);
+			/*
+			asm("dsb sy");
+			asm("dmb sy");
+//			asm("tlbi vae1is, %0" : : "r"(inv));
+			asm("isb");
+//			asm("tlbi vmalle1");
+			asm("tlbi vmalle1is");
+			asm("dc ivac, %0" : : "r"(inv));
+			asm("dsb sy");
+			asm("isb");
+			*/
+			/*
+			asm("dc csw, %0" : : "r"(inv));
+			asm("tlbi vae1is, %0" : : "r"(inv));
+			flush_tlb_all();
+			asm("dsb sy");
+			asm("dsb sy");
+			asm("dsb sy");
+			asm("isb");
+			asm("dsb sy");
+			asm("isb");
+			asm("dc civac, %0" : : "r"(ret));
+			*/
 		}
 		else	{
 			return NULL;
@@ -153,6 +200,7 @@ static uint64_t* mmu_check_entry(uint64_t* pt, int idx, bool create)	{
 	}
 	return (uint64_t*)(ret + cpu_linear_offset());
 }
+
 
 static int mmu_create_entry(ptr_t addr, ptr_t oa, uint64_t* pgd, ptr_t flag)	{
 #if ARM64_VA_BITS > 39
@@ -173,12 +221,33 @@ static int mmu_create_entry(ptr_t addr, ptr_t oa, uint64_t* pgd, ptr_t flag)	{
 	pmd = mmu_check_entry(pud, l1idx, true);
 	ptd = mmu_check_entry(pmd, l2idx, true);
 
-	ptd[l3idx] = oa | ARM64_MMU_ENTRY_NEXT_PAGE | flag;
-	//logd("mmu %lx -> %lx\n", addr, oa);
+#define PT_DOMAIN_ISH (0b11 << 12)
+#define PT_DOMAIN_OSH (0b10 << 12)
+	ptd[l3idx] = oa | ARM64_MMU_ENTRY_NEXT_PAGE | flag /*| PT_DOMAIN_ISH*/ ;
 
+	dsb();
+	isb();
+	mmu_tlbflush_addr(addr);
+	//asm volatile("dc cvau, %0" : : "r"(addr));
+/*
+	asm("dsb sy");
+	asm("dmb sy");
+	asm("dsb sy");
+	asm("dmb sy");
+	asm("dsb ishst");
+	asm("isb");
+//	asm("tlbi vmalle1");
+	asm("tlbi vmalle1is");
+	asm("dsb sy");
+	asm("dmb sy");
+	asm("dsb sy");
+	asm("dmb sy");
+	asm("dc cvac, %0" : : "r"(addr));
+	asm("dsb sy");
+	asm("isb");
+	*/
 	return 0;
 }
-
 
 
 static void _mmu_unmap_page(ptr_t addr, uint64_t* pgd)	{
@@ -206,12 +275,11 @@ static void _mmu_unmap_page(ptr_t addr, uint64_t* pgd)	{
 
 	if(ptd[l3idx] & ARM64_MMU_ENTRY_NEXT_PAGE)	{
 		ptr_t oa = ptd[l3idx] & ARM64_MMU_OA_MASK;
-		logd("mmu free %lx -> %lx\n", addr, oa);
+		//logd("mmu free %lx -> %lx\n", addr, oa);
 		pmm_free(oa);
 		ptd[l3idx] = 0;
+		mmu_tlbflush_addr(addr);
 	}
-
-	isb(); dsb();
 }
 
 
@@ -232,10 +300,26 @@ int mmu_create_linear(ptr_t start, ptr_t end)	{
 	* kernel .text segment. This will be automatically patched up when we map in
 	* the kernel image. 
 	*/
-	for(i = 0; i < (linstop - linstart); i += PAGE_SIZE)	{
-		mmu_create_entry(linstart + i, start + i, pgd, ARM64_MMU_ENTRY_KERNEL_RWX);
-	}
+//	ptr_t img_init = IMAGE_END;
+	ptr_t first_kern = (ptr_t)(&(KERNEL_TEXT_START));
+	ALIGN_DOWN_POW2(first_kern, PAGE_SIZE);
 
+	ptr_t last_kern = (ptr_t)(&(KERNEL_RODATA_STOP));
+	ALIGN_UP_POW2(last_kern, PAGE_SIZE);
+
+	ptr_t attr = 0;
+	ptr_t vi;
+	for(i = 0; i < (linstop - linstart); i += PAGE_SIZE)	{
+		vi = linstart + i;
+		// Everything outside kernel image should be no-cache
+		if(vi < first_kern || vi >= last_kern)	{
+			attr = ARM64_MMU_ENTRY_ATTR_NOCACHE | ARM64_MMU_ENTRY_KERNEL_RW;
+		}
+		else {
+			attr = ARM64_MMU_ENTRY_KERNEL_RWX;
+		}
+		mmu_create_entry(vi, start + i, pgd, attr);
+	}
 	isb();
 }
 
@@ -252,6 +336,8 @@ int mmu_init_user_memory(ptr_t* pgd)	{
 		ARM64_REG_TCR_T0SZ |
 		ARM64_REG_TCR_T1SZ | 
 		ARM64_REG_TCR_TG0 | 
+		ARM64_REG_TCR_TG1 |
+//		(0b11UL << 28) | (0b01 << 26) | (0b01 << 24) |
 		ARM64_REG_TCR_IPS
 	);
 	isb();
@@ -268,7 +354,6 @@ int __mmu_map_pages(ptr_t vaddr, ptr_t paddr, int pages, uint64_t* pgd, ptr_t fl
 			PANIC("Unable to map vaddr");
 		}
 	}
-	isb(); dsb();
 	return res;
 }
 
@@ -285,16 +370,13 @@ int mmu_map_dma(ptr_t paddr, ptr_t stop)	{
 #if defined(CONFIG_KASAN)
 	kasan_mark_valid(vaddr, (stop - paddr));
 #endif
-	isb(); dsb();
 	return ret;
 }
 
 static int _mmu_map_pages(ptr_t vaddr, int pages, ptr_t flags, uint64_t* pgd)	{
 	int ret = 0;
 	ptr_t paddr = pmm_alloc(pages);
-	//logd("mmu %lx -> %lx\n", vaddr, paddr);
 	ret = __mmu_map_pages(vaddr, paddr, pages, pgd, flags);
-	isb(); dsb();
 	return ret;
 }
 
@@ -358,10 +440,9 @@ int mmu_second_init(void)	{
 
 	// [0] = normal memory pointing to attr
 	// [1] = strong device memory (nGnRnE)
-	write_mair_el1(0b0000000001000100UL);
+	//write_mair_el1(0x4444444444440044UL);
+	//write_mair_el1(0x00ffUL);
 
-	isb();
-	dsb();
 	return 0;
 }
 
@@ -407,14 +488,16 @@ bool mmu_page_mapped(ptr_t addr)	{
 	return mmu_va_to_pa(addr) != 0;
 }
 bool mmu_addr_mapped(ptr_t addr, size_t len, int type)	{
-	ptr_t res;
-	size_t off;
+	ptr_t res, end, start, i;
 	int invalid = 0;
 
-	ALIGN_DOWN_POW2(addr, PAGE_SIZE);
-	ALIGN_UP_POW2(len, PAGE_SIZE);
-	for(off = 0; off < len; off += PAGE_SIZE)	{
-		res = mmu_va_to_pa((ptr_t)addr + off);
+	start = addr;
+	end = start + len;
+
+	ALIGN_DOWN_POW2(start, PAGE_SIZE);
+	ALIGN_UP_POW2(end, PAGE_SIZE);
+	for(i = addr; i < end; i += PAGE_SIZE)	{
+		res = mmu_va_to_pa(i);
 		if(res == 0)	{
 			if(type == MMU_ALL_MAPPED)	{
 				return false;
@@ -521,7 +604,10 @@ bool mmu_check_page_cloned_pgd(ptr_t* pgd, ptr_t vaddr, uint32_t flags)	{
 
 	e = ptd[l3idx];
 	if(ARM64_MMU_ENTRY_IS_VALID(e))	{
-		if(!ARM64_MMU_CLONED(e))	return false;
+		if(!ARM64_MMU_CLONED(e))	{
+			//mmu_tlbflush_addr(vaddr);
+			return false;
+		}
 		if(!noperm && !write)		return false;
 
 		// Get real AP value and check if access is valid
@@ -545,9 +631,9 @@ bool mmu_check_page_cloned_pgd(ptr_t* pgd, ptr_t vaddr, uint32_t flags)	{
 				pmm_free(oa);
 			}
 			// Restore original permission bits and set clone off
-			ARM64_AP_SET(e, val);
 			ARM64_MMU_CLONE_AP_CLEAR(e);
 			ARM64_MMU_CLONE_CLEAR(e);
+			ARM64_AP_SET(e, val);
 		}
 		else	{
 			PANIC("pmmref <= 0");
@@ -585,8 +671,6 @@ bool mmu_check_page_cloned_pgd(ptr_t* pgd, ptr_t vaddr, uint32_t flags)	{
 	// TLB will never hold an invalid entry, so it should not be necessary to
 	// any TLB maintenance
 
-//	flush_tlb();
-	isb(); dsb();
 	return true;
 }
 
@@ -657,8 +741,6 @@ int mmu_clone_fork(ptr_t* pgdto)	{
 	_mmu_clone_fork(pgd, max, table);
 
 	memcpy(pgdto, pgd, PAGE_SIZE);
-	flush_tlb();
-	isb(); dsb();
 	return OK;
 }
 
@@ -818,9 +900,6 @@ again:
 
 	// Map in all the pages
 	_mmu_map_pages(try, pages, _mmu_prot_to_flags(true, PROT_RW), pgd);
-
-	flush_tlb();
-	isb(); dsb();
 	return try;
 }
 
@@ -840,6 +919,22 @@ void* mmu_memcpy(ptr_t* pgd, void* _dest, const void* src, size_t n)	{
 	if(!oa)	return NULL;
 	void* dest = (void*)(oa + cpu_linear_offset());
 	return memcpy(dest, src, n);
+}
+void* mmu_memcpy_user(ptr_t* pgd, void* _dest, const void* _src, size_t n)	{
+	PGD_ASSERT(pgd);
+	ASSERT_USER_MEM(_src, n);
+	ASSERT_USER_MEM(_dest, n);
+
+	ptr_t oa1 = mmu_va_to_pa_pgd(pgd, (ptr_t)_dest, NULL);
+	if(!oa1)	return NULL;
+	void* dest = (void*)(oa1 + cpu_linear_offset());
+
+	ptr_t oa2 = mmu_va_to_pa_pgd(pgd, (ptr_t)_src, NULL);
+	if(!oa2)	return NULL;
+	void* src = (void*)(oa2 + cpu_linear_offset());
+
+	return memcpy(dest, src, n);
+
 }
 void* mmu_strcpy(ptr_t* pgd, void* _dest, const void* src)	{
 	PGD_ASSERT(pgd);

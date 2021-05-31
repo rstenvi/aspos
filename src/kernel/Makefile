@@ -14,18 +14,22 @@ OBJ += cmdline.o
 OBJ += errorhandler.o
 OBJ += iovec.o
 
-ifdef CONFIG_KASAN
-OBJ += kasan.o
-kasan.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
-ifdef CONFIG_UBSAN
-kasan.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
-endif
-endif
+#ifdef CONFIG_KASAN
+#OBJ += kasan.o
+#kasan.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+#kcov.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+#ifdef CONFIG_UBSAN
+#kasan.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
+#endif
+#endif
 
 ifdef CONFIG_KCOV
 OBJ += kcov.o
 kcov.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 kasan.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+
+# Lot of noise, but should be fixed
+pmm.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 endif
 
 all: $(OBJ)

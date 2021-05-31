@@ -262,6 +262,9 @@ function m()	{
 	docker run --rm --env-file ${CROOT}/aspos.env -v ${CROOT}:${CROOT} -w ${CROOT} ${DOCKERNAME} make ${@}
 }
 
+function rebuild() {
+	mu clean && mm clean && mm && mu
+}
 
 function croot()  { cd ${CROOT}; }
 function carch()  { cd ${CROOT}/src/arch/${ARCH}; }

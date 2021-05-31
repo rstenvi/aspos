@@ -205,28 +205,29 @@ int virtio_blk_irq_cb(int irqno)	{
 	res = virtio_intr_status(dev);
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		struct blk_job* j = _get_job();
-		arch_set_upgd(thread_get_upgd(j->thread));
-		// We always read/write in these unit sizes
+		if(!PTR_IS_ERR(j))	{
+			ptr_t* pgd = thread_get_user_pgd(j->thread);
 
-		uint8_t* dres = (uint8_t*)j->devresult;
-		uint8_t retcode;
-		if(j->type == JOB_READ)		retcode = dres[512];
-		else						retcode = dres[0];
+			uint8_t* dres = (uint8_t*)j->devresult;
+			uint8_t retcode;
+			if(j->type == JOB_READ)		retcode = dres[512];
+			else						retcode = dres[0];
 
-		if(retcode != 0)	{
-			logw("Driver returned %i\n", retcode);
-		}
-		else if(j->type == JOB_READ)	{
-			memcpy_to_user(j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
-		}
-		j->left -= MIN(j->left, BLK_UNIT_SIZE);
+			if(retcode != 0)	{
+				logw("Driver returned %i\n", retcode);
+			}
+			else if(j->type == JOB_READ)	{
+				mmu_memcpy(pgd, j->uaddr, j->devresult, MIN(j->left, BLK_UNIT_SIZE));
+			}
+			j->left -= MIN(j->left, BLK_UNIT_SIZE);
 
-		// Unlock the device for new operations
-		mutex_release(&blkdevice.lock);
-		if(j->type != JOB_NONE && (j->left == 0 || retcode != 0))	{
-			int tid = j->thread->id;
-			j->type = JOB_NONE;
-			thread_wakeup(tid, (retcode == 0) ? j->total : -1);
+			// Unlock the device for new operations
+			mutex_release(&blkdevice.lock);
+			if(j->type != JOB_NONE && (j->left == 0 || retcode != 0))	{
+				int tid = j->thread->id;
+				j->type = JOB_NONE;
+				thread_wakeup(tid, (retcode == 0) ? j->total : -1);
+			}
 		}
 	}
 	virtio_ack_intr(dev);

@@ -45,7 +45,7 @@ void send_tcp_socket(char* msg);
 
 int main(int argc, char* argv[])	{
 	memcmp("asd", "qwe", 3);
-	struct netif* n = (struct netif*)malloc( sizeof(struct netif) );
+	struct netif* n = (struct netif*)kmalloc( sizeof(struct netif) );
 	err_t ret;
 	int count;
 
@@ -151,7 +151,7 @@ void send_tcp_socket(char* msg)	{
 	server.sin_addr.s_addr = inet_addr("192.168.0.20");
 	char* buf;
 	
-	buf = (char*)malloc( msglen + 1 );
+	buf = (char*)kmalloc( msglen + 1 );
 	if(buf == NULL)	exit(1);
 
 	sock = socket(AF_INET, SOCK_STREAM, 0);

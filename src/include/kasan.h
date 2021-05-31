@@ -14,6 +14,11 @@
 #define F_KASAN_MAGIC ('u')
 #define FCNTL_KASAN_ALL_TESTS  FCNTL_ID(0x10, F_KASAN_MAGIC)
 
+void kasan_init(void);
+void kasan_mark_valid(ptr_t addr, ptr_t len);
 int kasan_alloc_size(void* addr);
+void kasan_mmap(void* addr, size_t size);
+void kasan_munmap(void* addr);
+void kasan_print_allocated(void);
 
 #endif

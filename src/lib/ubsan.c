@@ -1,6 +1,14 @@
 #include "lib.h"
 #include "log.h"
 
+#ifdef UMODE
+#define ubsan_exit(n) exit(n)
+#else
+#define ubsan_exit(n) kern_poweroff(1)
+#endif
+
+static int ubsan_panic_on_err = 1;
+
 enum {
 	type_kind_int = 0,
 	type_kind_float = 1,
@@ -105,6 +113,9 @@ static bool should_report(struct source_location* loc)	{
 }
 static void ubsan_pr_post(void)	{
 	bugprintf("UBSAN finished\n\n");
+	if(ubsan_panic_on_err)	{
+		ubsan_exit(1);
+	}
 }
 static void ubsan_pr_loc(const char* msg, struct source_location* loc)	{
 	bugprintf("UBSAN: %s | %s:%d:%d\n", msg, loc->file_name, loc->line, loc->column);

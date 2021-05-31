@@ -16,12 +16,20 @@ OBJ += aspos.o
 SOBJ += bitmap.o
 SOBJ += xifo.o
 SOBJ += string.o
-SOBJ += tlist.o
+#SOBJ += tlist.o
 SOBJ += spinlock.o
 SOBJ += llist.o
 SOBJ += ringbuf.o
 SOBJ += semaphore.o
 SOBJ += ubsan.o
+
+ifdef CONFIG_KASAN
+SOBJ += kasan.o
+kasan.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+
+# mmapped region for kcov is not communicated to kasan
+kcov.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
+endif
 
 network.o: CFLAGS += -DLWIP_USER=1
 
@@ -31,7 +39,20 @@ kcov.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 crt0.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 ubsan.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 syscalls.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+ifdef CONFIG_KASAN
+kasan.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 endif
+endif
+
+ifdef CONFIG_UBSAN
+kcov.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
+crt0.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
+ubsan.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
+ifdef CONFIG_KASAN
+kasan.o: CFLAGS := $(filter-out -fsanitize=$(UBSAN_SAN),$(CFLAGS))
+endif
+endif
+
 
 all: $(OBJ) drivers lwip ustar $(SOBJ)
 

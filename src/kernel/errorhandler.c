@@ -15,7 +15,7 @@ void panic(const char* msg, const char* file, int line) {
 }
 
 void memory_error(ptr_t addr, ptr_t ip, bool user, bool instr, bool write)	{
-	loge("Memory access: %lx %lx user=%i instr=%i write=%i\n", addr, ip, user, instr, write);
+	loge("Memory access: addr %lx IP %lx user=%i instr=%i write=%i\n", addr, ip, user, instr, write);
 	if(!user)	{
 		loge("Kernel access, need to shut down system\n");
 		arch_dump_regs();

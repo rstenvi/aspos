@@ -15,6 +15,7 @@ OBJ += virtio-console.o
 OBJ += mutex.o
 OBJ += semaphore.o
 OBJ += cuse.o
+OBJ += umem.o
 
 ifdef CONFIG_UBSAN
 OBJ += ubsan-test.o

@@ -1,14 +1,32 @@
+
+#ifndef UMODE
 #include "kernel.h"
+#else
+#include "lib.h"
+#include "fcntl.h"
+#endif
+
+#include "memory.h"
 #include "kasan.h"
 #include "arch.h"
 
+#ifndef UMODE
 #define KASAN_START_ADDR (ARM64_VA_SHADOW_START)
-//#define SHADOW_BYTES_PER (8)
+#define ADDR_EL_WRONG ADDR_USER
+#define KASAN_FIRST_ADDR (ARM64_VA_KERNEL_FIRST_ADDR)
+#define kasan_exit(n) kern_poweroff(1)
+#else
+// Generated dynamically based on mmap()
+ptr_t KASAN_START_ADDR = 0;
+#define ADDR_EL_WRONG ADDR_KERNEL
+#define KASAN_FIRST_ADDR (0)
+#define kasan_exit(n) exit(n)
+#endif
 
 #define _KASAN_ROUND_DOWN(val) (GET_ALIGNED_DOWN_POW2(val, SHADOW_BYTES_PER))
 #define _KASAN_ROUND_UP(val)   (GET_ALIGNED_UP_POW2(val, SHADOW_BYTES_PER))
-#define ADDR_TO_SHADOW_FIRST(val) (((_KASAN_ROUND_DOWN(val) - ARM64_VA_KERNEL_FIRST_ADDR) / SHADOW_BYTES_PER) + KASAN_START_ADDR)
-#define ADDR_TO_SHADOW_LAST(val) (((_KASAN_ROUND_UP(val) - ARM64_VA_KERNEL_FIRST_ADDR) / SHADOW_BYTES_PER) + KASAN_START_ADDR)
+#define ADDR_TO_SHADOW_FIRST(val) (((_KASAN_ROUND_DOWN(val) - KASAN_FIRST_ADDR) / SHADOW_BYTES_PER) + KASAN_START_ADDR)
+#define ADDR_TO_SHADOW_LAST(val) (((_KASAN_ROUND_UP(val) - KASAN_FIRST_ADDR) / SHADOW_BYTES_PER) + KASAN_START_ADDR)
 
 #define ADDR_OFFSET_IN_BYTE(addr) (addr % SHADOW_BYTES_PER)
 //#define ADDR_OFFSET_VALUE(addr) (SHADOW_BYTES_PER - ADDR_OFFSET_IN_BYTE(addr))
@@ -18,17 +36,19 @@
 #define KASAN_MAGIC_RZ_BEFOR (0xfd)
 #define KASAN_MAGIC_RZ_AFTER (0xfc)
 
+#ifndef UMODE
 extern uint64_t KERNEL_TEXT_START;
 extern uint64_t KERNEL_TEXT_STOP;
-
 extern uint64_t KERNEL_DATA_START;
 extern uint64_t KERNEL_DATA_STOP;
-
 extern uint64_t KERNEL_BSS_START;
 extern uint64_t KERNEL_BSS_STOP;
-
 extern uint64_t KERNEL_RODATA_START;
 extern uint64_t KERNEL_RODATA_STOP;
+#else
+extern uint64_t UMODE_IMAGE_START;
+extern uint64_t UMODE_IMAGE_STOP;
+#endif
 
 #define KASAN_STORE_ALLOC_LOC 1
 
@@ -44,6 +64,13 @@ struct k_alloced {
 #endif
 } __attribute__((aligned(32)));;
 
+/**
+* Array of allocated objects
+*
+* Would normally use a linked list here, but insertion in that list migth
+* cause a malloc, which will cause an infinite loop. To avoid this mess, we
+* use an array and allocate pages as needed.
+*/
 struct k_alloc {
 	int curr, max, amax;
 	struct k_alloced* arr;
@@ -52,16 +79,23 @@ struct k_alloc {
 struct kasan {
 	mutex_t lock;
 	bool initialized;
-	bool panic_on_err;
-	ptr_t linear_start, linear_length;
 
-	/**
-	* Array of all allocated objects.
-	*
-	* Would normally use a linked list here, but insertion in that list migth
-	* cause a malloc, which will cause an infinite loop. To avoid this mess, we
-	* use an array and allocate pages as needed.
+	/** Wether fault is a PANIC */
+	bool panic_on_err;
+
+#ifndef UMODE
+	/*
+	* We currently don't track memory in the linear region. As a result, we must
+	* allow all access to the regions. Possible better solutions:
+	* - Track all memory in linear regions
+	* - Disable asan in functions which access linear region
 	*/
+	ptr_t linear_start, linear_length;
+#else
+	int memfd;
+#endif
+
+	/** All objects allocated, but not free'd */
 	struct k_alloc alloced;
 #ifdef KASAN_FREE_QUARANTINE
 	struct XIFO* quarantine;
@@ -70,6 +104,13 @@ struct kasan {
 
 static struct kasan kasan;
 
+#define MSGID_PAGE_UNMAPPED (0)
+#define MSGID_INV_ACCESS    (1)
+#define MSGID_UAF           (2)
+#define MSGID_RZ_BEFORE     (3)
+#define MSGID_RZ_AFTER      (4)
+#define MSGID_INV_FREE      (5)
+#define MSGID_WRONG_EL_ADDR (6)
 #define NUM_MSGIDS (7)
 static const char* kasan_msgs[] = {
 	"page not mapped in",
@@ -78,7 +119,11 @@ static const char* kasan_msgs[] = {
 	"redzone before buffer",
 	"redzone after buffer",
 	"free of invalid value",
+#ifndef UMODE
 	"user-mode addr",
+#else
+	"kernel-mode addr",
+#endif
 };
 
 static int kasan_report(int msgid, ptr_t addr, int size, bool write, ptr_t ip)	{
@@ -95,14 +140,18 @@ static int kasan_report(int msgid, ptr_t addr, int size, bool write, ptr_t ip)	{
 	//osdata.printk("KASAN: %s: Address: %lx IP: %lx\n", msg, addr, ip);
 	if(kasan.panic_on_err)	{
 		bugprintf("KASAN: panic_on_err is set, powering off\n");
-		kern_poweroff(true);
+		kasan_exit(1);
 	}
 	kasan.initialized = true;
 }
 
 static int check_addr_shadow(ptr_t start, ptr_t end, bool write, ptr_t ip)	{
-	if(ADDR_USER(start) || ADDR_USER(end))	{
-		kasan_report(NUM_MSGIDS-1, start, (end - start), write, ip);
+	/**
+	* TODO: This is currently valid because arch-code is excluded, should
+	* re-evaluate that.
+	*/
+	if(ADDR_EL_WRONG(start) || ADDR_EL_WRONG(end))	{
+		kasan_report(MSGID_WRONG_EL_ADDR, start, (end - start), write, ip);
 		return 1;
 	}
 
@@ -112,12 +161,23 @@ static int check_addr_shadow(ptr_t start, ptr_t end, bool write, ptr_t ip)	{
 	int first_byte = (start % 8);
 	int last_byte = (end % 8);
 	unsigned char c;
-	
-	while(shadow != s_end)	{
-		if(!mmu_page_mapped((ptr_t)shadow))	{
-			kasan_report(0, start + (shadow - s_start), (end - start), write, ip);
+
+#ifdef UMODE
+	if(seek_read(kasan.memfd, NULL, (s_end - s_start), (ptr_t)shadow) < (s_end - s_start))	{
+		kasan_report(MSGID_PAGE_UNMAPPED, start + (shadow - s_start), (end - start), write, ip);
+	}
+#else
+	ptr_t i = GET_ALIGNED_PAGE_DOWN((ptr_t)s_start),
+		stop = GET_ALIGNED_PAGE_UP((ptr_t)s_end);
+	for(; i < stop; i += PAGE_SIZE)	{
+		if(!mmu_page_mapped((ptr_t)i))	{
+			kasan_report(MSGID_PAGE_UNMAPPED, start + (shadow - s_start), (end - start), write, ip);
 			return 1;
 		}
+	}
+#endif
+	
+	while(shadow != s_end)	{
 		c = *shadow;
 		if(c != 0x00)	{
 			if(c > SHADOW_BYTES_PER)	{
@@ -125,11 +185,11 @@ static int check_addr_shadow(ptr_t start, ptr_t end, bool write, ptr_t ip)	{
 				return c;
 			}
 			if(shadow == s_start && first_byte > c)	{
-				kasan_report(1, start + (shadow - s_start), (end - start), write, ip);
+				kasan_report(MSGID_INV_ACCESS, start + (shadow - s_start), (end - start), write, ip);
 				return 1;
 			}
 			if(shadow == s_end && last_byte > c)	{
-				kasan_report(1, start + (shadow - s_start), (end - start), write, ip);
+				kasan_report(MSGID_INV_ACCESS, start + (shadow - s_start), (end - start), write, ip);
 				return 1;
 			}
 		}
@@ -137,13 +197,6 @@ static int check_addr_shadow(ptr_t start, ptr_t end, bool write, ptr_t ip)	{
 	}
 	return OK;
 }
-/*
-static bool _kasan_mapped(ptr_t addr)	{
-}
-static void _kasan_unpoison_byte(ptr_t addr)	{
-	ptr_t start = ADDR_TO_SHADOW_FIRST(addr);
-}
-*/
 static void _kasan_unpoison_block(ptr_t addr)	{
 	char* sh = (char*)ADDR_TO_SHADOW_FIRST(addr);
 	*sh = 0x00;
@@ -153,15 +206,22 @@ static void _kasan_ensure_mapped_in(ptr_t _s_start, ptr_t _s_end)	{
 		s_end = GET_ALIGNED_UP_POW2(_s_end, PAGE_SIZE),
 		i;
 	for(i = s_start; i < s_end; i += PAGE_SIZE)	{
+#ifndef UMODE
 		if(!mmu_page_mapped(i))	{
 			mmu_map_page(i, PROT_RW);
+#else
+		if(seek_read(kasan.memfd, NULL, PAGE_SIZE, i) != PAGE_SIZE)	{
+			uint64_t* a = (uint64_t*)i;
+			WRITE_ONCE(a[0], 0xffffffffffffffff);
+#endif
 			memset((void*)i, 0xff, PAGE_SIZE);
 		}
 	}
 }
 static void _kasan_unpoison_buf(ptr_t start, ptr_t end)	{
-	if(ADDR_USER(start) || ADDR_USER(end))	{
-		PANIC("Tried to unpoison user-mode addr\n");
+	if(ADDR_EL_WRONG(start) || ADDR_EL_WRONG(end))	{
+		bugprintf("KASAN: Tried to unpoison wrong mode addr\n");
+		return;
 	}
 	ptr_t i,
 		// Get aligned down shadow addresses
@@ -187,8 +247,8 @@ static void _kasan_unpoison_buf(ptr_t start, ptr_t end)	{
 }
 
 static void _kasan_poison_buf(ptr_t start, ptr_t end, char c)	{
-	if(ADDR_USER(start) || ADDR_USER(end))	{
-		PANIC("Tried to poison user-mode addr\n");
+	if(ADDR_EL_WRONG(start) || ADDR_EL_WRONG(end))	{
+		bugprintf("KASAN: Tried to poison wrong mode addr\n");
 		return;
 	}
 	ptr_t i,
@@ -200,8 +260,14 @@ static void _kasan_poison_buf(ptr_t start, ptr_t end, char c)	{
 
 
 	// TODO: Check if mapped in
+#ifndef UMODE
 	if(!mmu_page_mapped(s_start) || !mmu_page_mapped(s_end))	{
-		// TODO: Print error
+#else
+	if(seek_read(kasan.memfd, NULL, s_end - s_start, s_start) != (s_end - s_start))	{
+#endif
+		if(kasan.initialized)	{
+			bugprintf("KASAN: Tried to poison memory not mapped in\n");
+		}
 		return;
 	}
 
@@ -224,19 +290,15 @@ static void _kasan_poison_buf(ptr_t start, ptr_t end, char c)	{
 }
 
 static bool _kasan_in_linear(ptr_t a_addr, int a_length)	{
+#ifndef UMODE
 	ptr_t addr = kasan.linear_start, length = kasan.linear_length;
-//	if(get_memory_dtb(&addr, &length))	PANIC("Cannot get physical memory details from dtb\n");
 
 	return (a_addr >= addr && a_addr < (addr + length) &&
 		(a_addr + a_length) >= addr && (a_addr + a_length) < (addr + length));
+#else
+	return false;
+#endif
 }
-/*static void _kasan_unpoison_linear(void)	{
-	ptr_t addr, length;
-	if(get_memory_dtb(&addr, &length))	PANIC("Cannot get physical memory details from dtb\n");
-
-	addr += ARM64_VA_LINEAR_START;
-	_kasan_unpoison_buf(addr, addr + length);
-}*/
 
 void kasan_mark_valid(ptr_t addr, ptr_t len)	{
 	//mutex_acquire(&kasan.lock);
@@ -254,9 +316,8 @@ void kasan_mark_poison(ptr_t addr, ptr_t len, char magic)	{
 
 void kasan_init(void)	{
 	ptr_t start, stop;
-	//_kasan_unpoison_linear();
+#ifndef UMODE
 	if(get_memory_dtb(&kasan.linear_start, &kasan.linear_length))	PANIC("Cannot get physical memory details from dtb\n");
-
 	kasan.linear_start += cpu_linear_offset();
 
 	start = (ptr_t)(&(KERNEL_TEXT_START));
@@ -274,15 +335,41 @@ void kasan_init(void)	{
 	start = (ptr_t)(&(KERNEL_RODATA_START));
 	stop = (ptr_t)(&(KERNEL_RODATA_STOP));
 	_kasan_unpoison_buf(start, stop);
+#else
+	ptr_t size = (1UL << (CONFIG_AARCH64_VA_BITS)) / SHADOW_BYTES_PER;
+
+	// We use _mmap here so that we don't include this in kasan mmap
+	KASAN_START_ADDR = (ptr_t)_mmap(NULL, size, PROT_RW, MAP_LAZY_ALLOC, -1);
+	if(PTR_IS_ERR(KASAN_START_ADDR))	{
+		bugprintf("KASAN: Unable to mmap memory region for kasan\n");
+		return;
+	}
+
+	kasan.memfd = open("/dev/umem", OPEN_FLAG_RW);
+	if(kasan.memfd < 0)	{
+		bugprintf("KASAN: Unable to open driver for controlling memory access\n");
+		return;
+	}
+
+	start = (ptr_t)(&(UMODE_IMAGE_START));
+	stop = (ptr_t)(&(UMODE_IMAGE_STOP));
+	_kasan_unpoison_buf(start, stop);
+
+#endif
 
 #define AMAX_PAGES (10)
 	kasan.alloced.curr = 0;
-	kasan.alloced.max = 0;
 	kasan.alloced.amax = (AMAX_PAGES * PAGE_SIZE) / sizeof(struct k_alloced);
+#ifndef UMODE
+	kasan.alloced.max = 0;
 	kasan.alloced.arr = (struct k_alloced*)
 		vmmap_alloc_pages(AMAX_PAGES, PROT_RW, VMMAP_FLAG_LAZY_ALLOC);
-
+#else
+	kasan.alloced.max = kasan.alloced.amax;
+	kasan.alloced.arr = (struct k_alloced*)_mmap(NULL, AMAX_PAGES * PAGE_SIZE, PROT_RW, MAP_LAZY_ALLOC, -1);
+#endif
 	ASSERT(PTR_IS_VALID(kasan.alloced.arr));
+
 #ifdef KASAN_FREE_QUARANTINE
 	// Allocate twice the size of MAX to avoid having to adjust the buffer all the time
 	kasan.quarantine = xifo_alloc(KASAN_QUARANTINE_MAX * 2, 0);
@@ -331,10 +418,13 @@ void __asan_loadN(void* addr, long int size)	{
 }
 void __asan_loadN_noabort(void*,long int) __alias(__asan_loadN);
 
+void __asan_handle_no_return(void)	{
+	// This is called before exit()
+}
 static void _kasan_map_next_alloc(void)	{
 	ptr_t addr = (ptr_t)(kasan.alloced.arr);
 	if(kasan.alloced.max == kasan.alloced.amax)	{
-		logw("Reached max target array used to hold allocated objects");
+		bugprintf("KASAN: Reached max target array used to hold allocated objects");
 
 		// If we've exhausted the array, we simply throw away the first page.
 		// The result is that we will not be able to mark values as freed in
@@ -343,26 +433,14 @@ static void _kasan_map_next_alloc(void)	{
 		memmove((void*)addr, (const void*)(addr + PAGE_SIZE), PAGE_SIZE);
 		kasan.alloced.curr -= (PAGE_SIZE / sizeof(struct k_alloced));
 	}
+#ifndef UMODE
+	/* We only need to maunally map in pages in kernel mode */
 	addr += (kasan.alloced.curr * sizeof(struct k_alloced));
 	ASSERT(addr == GET_ALIGNED_DOWN_POW2(addr, PAGE_SIZE));
 	vmmap_map_page(addr);
 	kasan.alloced.max += (PAGE_SIZE / sizeof(struct k_alloced));
+#endif
 }
-/*
-int _kasan_find_addr(struct k_alloced* arr, int last, void* addr)	{
-	int first = 0;
-	int mid = first + ((last - first) / 2);
-	void* elem;
-	while(first < last)	{
-		mid = first + ((last - first) / 2);
-		elem = arr[mid].addr;
-		if(addr < elem)			first = mid+1;
-		else if(addr > elem)	last = mid;
-		else	break;
-	}
-	return mid;
-}
-*/
 
 /**
 * This algorithm for searching might seem slow, but most free's will be on
@@ -376,6 +454,15 @@ int _kasan_find_addr(struct k_alloced* arr, int last, void* addr)	{
 		last--;
 	}
 	return -1;
+}
+
+void kasan_mmap(void* addr, size_t size)	{
+	kasan_mark_valid((ptr_t)addr, size);
+}
+void kasan_munmap(void* addr)	{
+	// TODO:
+	// - Need to manually track size
+	bugprintf("TODO: Unmapping of region not implemented, could lead to kasan false negaitive\n");
 }
 
 void kasan_malloc(void* addr, size_t size)	{
@@ -409,25 +496,8 @@ void kasan_malloc(void* addr, size_t size)	{
 err1:
 	mutex_release(&kasan.lock);
 }
-/*
-#define Q_MAX_SIZE_BITS (63 - ARM64_VA_BITS)
-#define Q_MAX_SIZE (1 << Q_MAX_SIZE_BITS)
-#define Q_SIZE_MASK ((1 << Q_MAX_SIZE_BITS) << ARM64_VA_BITS)
-#define Q_ADDR_MASK ((1 << ARM64_VA_BITS)-1)
-#define Q_SIZE(size) ((size << ARM64_VA_BITS) & Q_SIZE_MASK)
-
-static inline ptr_t _encode_free_addr(ptr_t addr, ptr_t size)	{
-	if(size >= Q_MAX_SIZE)	return 0;
-	ptr_t ret = (1 << 63) & addr;
-
-	ret |= (addr & Q_ADDR_MASK);
-	ret |= Q_SIZE(size);
-
-	return ret;
-}
-*/
 void kasan_free(void* addr)	{
-	ptr_t pc = __builtin_return_address(0);
+	ptr_t pc = (ptr_t)__builtin_return_address(0);
 	void* ret;
 	size_t sz;
 	int idx;
@@ -439,20 +509,16 @@ void kasan_free(void* addr)	{
 	mutex_acquire(&kasan.lock);
 	idx = _kasan_find_addr(arr, kasan.alloced.curr - 1, addr);
 	if(idx < 0 || ((ret = (void*)arr[idx].addr) != addr))	{
-		kasan_report(NUM_MSGIDS - 2, (ptr_t)addr, 0, false, pc);
+		kasan_report(MSGID_INV_FREE, (ptr_t)addr, 0, false, pc);
 		goto err1;
 	}
-	/*
-	ret = (void*)arr[idx].addr;
-	if(ret != addr)	{
-		// TODO: Should print an error here
-		goto err1;
-	}*/
 
 	sz = arr[idx].size;
 	rz_before = arr[idx].rz_before;
 
-	kasan_mark_freed((ptr_t)addr + rz_before, sz);
+	// We maintain the redzone around buffer, if we access a OOB index in free'd
+	// area, it will only be reported as OOB, but not UAF
+	kasan_mark_freed((ptr_t)addr, sz);
 
 #ifdef KASAN_FREE_QUARANTINE
 	if(xifo_count(kasan.quarantine) == KASAN_QUARANTINE_MAX)	{
@@ -460,13 +526,10 @@ void kasan_free(void* addr)	{
 		// - pop value in fifo
 		// - free address
 		void* f = xifo_pop_front(kasan.quarantine);
-//		idx = _kasan_find_addr(arr, kasan.alloced.max, f);
-//		remove = (arr[idx] == f);
 		free(f);
 	}
 	xifo_push_back(kasan.quarantine, addr - rz_before);
 #else
-//	remove = true;
 	free(addr - rz_before);
 #endif
 
@@ -516,6 +579,7 @@ void kasan_never_freed(void* addr)	{
 	ret = (void*)arr[idx].addr;
 	if(ret != addr)	{
 		// TODO: Should print an error here
+		bugprintf("KASAN: Asked to non-free on %p but value was not found\n", addr);
 		goto err1;
 	}
 
@@ -531,49 +595,16 @@ err1:
 void kasan_print_allocated(void)	{
 #if defined(KASAN_STORE_ALLOC_LOC)
 	mutex_acquire(&kasan.lock);
-	int i;
-	struct k_alloced* k;
-	for(i = 0; i < kasan.alloced.curr; i++)	{
-		k = &kasan.alloced.arr[i];
-		logi("%i object @ %lx (0x%x) PC: 0x%lx\n", i, k->addr, k->size, k->caller);
+	if(kasan.alloced.curr > 0)	{
+		bugprintf("\nMEMLEAK: Memory locations not free'd\n");
+		int i;
+		struct k_alloced* k;
+		for(i = 0; i < kasan.alloced.curr; i++)	{
+			k = &kasan.alloced.arr[i];
+			bugprintf("%i object @ %lx (0x%x) PC: 0x%lx\n", i, k->addr, k->size, k->caller);
+		}
 	}
 	mutex_release(&kasan.lock);
 #endif
 }
 
-/*
-void kasan_hexdump(unsigned char* start, int bytes, unsigned char* marker)	{
-	ALIGN_UP_POW2(bytes, 16);
-	int i, j;
-	char c = ' '
-	unsigned char* curr;
-	if(!mmu_page_mapped((ptr_t)start))	{
-		bufprintf("Hexdump page not mapped in\n");
-	}
-	if((GET_ALIGNED_DOWN2(start+bytes, PAGE_SIZE) != start))	{
-		if(!mmu_page_mapped(GET_ALIGNED_DOWN_POW2((ptr_t)start + bytes)))	{
-			ptr_t end = GET_ALIGNED_UP_POW2(start, PAGE_SIZE);
-			bytes = end - start;
-			ALIGN_DOWN_POW2(bytes, 16);
-		}
-	}
-			
-	for(i = 0; i < bytes; i += 16)	{
-		curr = &(start[i]);
-		c = ' ';
-		if(marker && marker == curr)	c = '>';
-
-		bufprintf("%c %p: ", c, curr);
-		for(j = i; j < i + 16; j += 4)	{
-			bufprintf("%02x %02x %02x %02x ", start[j], start[j+1], start[j+2], start[j+3]);
-		}
-		bugprintf("\n");
-		if(marker > curr && marker < curr + 16)	{
-			for(j = 0; j <= (marker - curr); j++)	{
-				bugprintf("   ");
-			}
-			bugprintf("^\n");
-		}
-	}
-}
-*/

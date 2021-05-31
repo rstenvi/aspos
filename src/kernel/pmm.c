@@ -109,7 +109,7 @@ int pmm_mark_mem(ptr_t start, ptr_t end)	{
 
 	ASSERT_TRUE(start < end, "End is lower than start");
 
-	mutex_acquire(&pmm->lock);
+//	mutex_acquire(&pmm->lock);
 	ptr_t rstart = start - pmm->start;
 	ptr_t rend = end - pmm->start;
 	ptr_t i;
@@ -119,7 +119,7 @@ int pmm_mark_mem(ptr_t start, ptr_t end)	{
 	for(i = (rstart / PAGE_SIZE); i < (rend / PAGE_SIZE); i++)	{
 		_pmm_add_ref(i);
 	}
-	mutex_release(&pmm->lock);
+//	mutex_release(&pmm->lock);
 	return 0;
 }
 

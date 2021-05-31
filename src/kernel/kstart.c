@@ -52,6 +52,7 @@ int early_printf(const char* fmt, ...)	{
 *	seccpu: Not sure if we need this
 */
 __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t seccpu)	{
+
 	struct os_data* osd = &(osdata);
 	// Temporary location for DTB
 	// We still use physical address, but it's been identity mapped
@@ -103,12 +104,6 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 __noreturn static void kstart_stage2(void) {
 	struct os_data* osd = &(osdata);
 
-	// Linear region is set up, we must now reconfigure some addresses so that we can
-	// remove identity map and use that for user region instead
-	osd->linear_offset = ARM64_VA_LINEAR_START;
-	osd->kpgd += osd->linear_offset;
-	osd->upgd += osd->linear_offset;
-
 	init_after_linear_region();
 
 	init_sbrk();
@@ -152,12 +147,14 @@ __noreturn static void kstart_stage2(void) {
 	// Lock the boot CPU so that we can pause the secondary CPUs
 	logi("Starting secondary CPUs\n");
 	struct cpus* cps = &(osd->cpus);
+	cps->started = 1;
 	mutex_acquire( &(cps->cpus[0].readylock) );
 
 	for(i = 1; i < cps->numcpus; i++)	{
 		if(cps->cpu_on)	{
 			// Acquire the lock first
 			mutex_acquire( &(cps->cpus[i].readylock) );
+			cps->started += 1;
 
 			// Start the CPU
 			cps->cpu_on(cps->cpus[i].cpuid, osd->cpu_reset_func);
@@ -193,13 +190,14 @@ static void percpu_start(void)	{
 	logi("Calling CPU-specific init-code\n");
 	call_inits(start, stop);
 
-	logi("Enabling IRQ\n");
-	enable_irq();
 
 	// We always release the boot cpu lock because all CPUs are using this lock
 	// for waiting
 	logi("Releasing readylock on boot CPU\n");
 	mutex_release( &(osdata.cpus.cpus[0].readylock) );
+
+	logi("Enabling IRQ\n");
+	enable_irq();
 
 	logi("Starting thread scheduler\n");
 	thread_schedule_next(0);
@@ -256,6 +254,10 @@ static int init_memory(ptr_t kimage)	{
 	//mmu_create_linear(0, osdata.pmm.end);
 	mmu_create_linear(osdata.pmm.start, osdata.pmm.end);
 
+	osdata.linear_offset = ARM64_VA_LINEAR_START;
+	osdata.kpgd += osdata.linear_offset;
+	osdata.upgd += osdata.linear_offset;
+
 	// Should use linear offset for DTB from now on
 	osdata.dtb = (void*)((ptr_t)osdata.dtb + ARM64_VA_LINEAR_START);
 	return OK;
@@ -296,11 +298,11 @@ void klog(const char* lvl, const char* file, const char* func, char* fmt, ...)	{
 #endif
 	va_list argptr;
 	va_start(argptr, fmt);
-	mutex_acquire(cpu_loglock());
+//	mutex_acquire(cpu_loglock());
 #if !defined(CONFIG_SIMPLE_LOG_FORMAT)
 	printf("%s|%s|%s|", lvl, file, func);
 #endif
 	vprintf(fmt, argptr);
 	va_end(argptr);
-	mutex_release(cpu_loglock());
+//	mutex_release(cpu_loglock());
 }

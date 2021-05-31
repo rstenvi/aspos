@@ -143,11 +143,13 @@ int virtio_rng_irq_cb(int irqno)	{
 	res = virtio_intr_status(dev);
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		res = write_to_user(desc, &(u->used[idx]), data, job);
+		virtio_ack_intr(dev);
 	}
 
 	// Job we have kicked of is finished, we check if we need to to kick of
 	// another one
 	else if(res == 0)	{
+		virtio_ack_intr(dev);
 		if(job->left)	{
 			virtq_add_buffer(dev, VIRTQ_RNG_READ_SIZE, VIRTQ_DESC_F_WRITE, 0, true, false);
 			DMAW32(dev->base + VIRTIO_OFF_QUEUE_NOTIFY, 0);
@@ -155,9 +157,9 @@ int virtio_rng_irq_cb(int irqno)	{
 		else	{
 			job = xifo_pop_front(data->jobs);
 			thread_wakeup(job->thread->id, job->total);
+			kfree(job);
 		}
 	}
-	virtio_ack_intr(dev);
 	return OK;
 }
 

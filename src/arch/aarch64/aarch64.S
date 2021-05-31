@@ -42,6 +42,7 @@ flush_tlb:
 	dsb ishst
 /*	tlbi alle1is */
 	tlbi vmalle1
+/*	tlbi alle1 */
 	dsb ish
 	isb
 	ret
@@ -259,3 +260,10 @@ smc:
 	smc #0
 	ret
 
+.global mmu_flush
+mmu_flush:
+	dsb ishst
+	tlbi vmalle1
+	dsb ish
+	isb
+	ret

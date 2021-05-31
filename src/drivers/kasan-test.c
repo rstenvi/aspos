@@ -9,7 +9,7 @@ static int _access_uaf(void)	{
 	return buf[0];
 }
 static int _access_wrong(void)	{
-	ptr_t* arr = (ptr_t*)0xffff0000deadbeef;
+	ptr_t* arr = (ptr_t*)0xffff0000deadbee0;
 	return (int)arr[0];
 }
 /*
@@ -49,11 +49,11 @@ int kasan_fcntl(struct vfsopen* o, ptr_t cmd, ptr_t arg)	{
 	int res = OK;
 	switch(cmd)	{
 	case FCNTL_KASAN_ALL_TESTS:
+		res = _access_wrong();
 		res = _overflow_access2();
 		res = _access_after_alloc();
 		res = _overflow_access();
 		res = _stack_access();
-		res = _access_wrong();
 		res = _access_uaf();
 		break;
 	default:

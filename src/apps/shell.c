@@ -23,6 +23,13 @@ int create_rootfs(void)	{
 	return res;
 }
 
+int shell_help(struct picolInterp *i, int argc, char **argv, void *pd)	{
+	printf("Valid commands\n"
+	"\techo | cat | poweroff\n"
+	);
+	return 0;
+}
+
 void conf_run_picol(void)	{
 	struct picolInterp interp;
 	picolInitInterp(&interp);
@@ -32,6 +39,8 @@ void conf_run_picol(void)	{
 	picolRegisterCommand(&interp, "cat", picol_cat, NULL);
 	picolRegisterCommand(&interp, "poweroff", picol_poweroff, NULL);
 	picolRegisterCommand(&interp, "exit", picol_poweroff, NULL);
+	picolRegisterCommand(&interp, "help", shell_help, NULL);
+	picolRegisterCommand(&interp, "?", shell_help, NULL);
 
 	fcntl(STDIN, CONSOLE_FCNTL_MODE, CHAR_MODE_LINE_ECHO);
 	picol_loop("aspos$ ", &interp, STDIN, STDOUT);
