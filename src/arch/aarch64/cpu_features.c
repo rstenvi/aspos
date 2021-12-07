@@ -97,6 +97,7 @@ static int perform_patch(uint32_t id)	{
 			*ins = r->instruction;
 		}
 	}
+	return OK;
 }
 
 static int _cpufeature_init(bool percpu)	{

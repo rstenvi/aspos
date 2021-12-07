@@ -79,7 +79,7 @@ uint32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)	{
 
 
 uint32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, uint32_t timeout)	{
-	struct sys_mbox* m = *mbox;
+	//struct sys_mbox* m = *mbox;
 	err_t ret;
 	signed long count = timeout;
 

@@ -19,14 +19,17 @@ typedef int32_t int32;
 typedef int64_t int64;
 
 
-typedef uint16_t tid_t;
-typedef uint64_t ptr_t;
+#ifndef __linux__
 typedef uint16_t uid_t;
 typedef uint16_t gid_t;
+#endif
+
 typedef volatile uint8_t mutex_t;
 typedef uint64_t sysfilter_t;
 typedef uint32_t ipv4_t;
-
+typedef uint16_t tid_t;
+typedef int32_t  fd_t;
+typedef uint64_t ptr_t;
 
 typedef int (*kputc_t)(char);
 typedef int (*kgetc_t)(void);

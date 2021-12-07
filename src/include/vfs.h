@@ -1,6 +1,7 @@
 #ifndef __VFS_H
 #define __VFS_H
 
+#include <sys/stat.h>
 #include "types.h"
 #include "acl.h"
 
@@ -74,13 +75,14 @@ struct vfsopen {
 	int fd;
 	off_t offset;
 	void* data;
+	uint32_t svcid;
 	struct user_id caller;
 };
 
 
 struct fs_struct {
 	char name[DEVICE_NAME_MAXLEN];
-	bool user;
+//	bool user;
 	drvfunc_open_t open;
 	drvfunc_fcntl_t fcntl;
 	drvfunc_fstat_t fstat;

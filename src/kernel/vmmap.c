@@ -35,13 +35,13 @@ int init_vmmap(void)	{
 	return ss;
 }
 
-static ptr_t find_phys_contiguous(struct vmmap* v, int pages)	{
-	signed long free = bm_get_first_num(&(v->bm), pages);
-	if(free < 0)	{
-		PANIC("VMMAP");
-	}
-	return (v->vaddrstart + (PAGE_SIZE * free));
-}
+// static ptr_t find_phys_contiguous(struct vmmap* v, int pages)	{
+// 	signed long free = bm_get_first_num(&(v->bm), pages);
+// 	if(free < 0)	{
+// 		PANIC("VMMAP");
+// 	}
+// 	return (v->vaddrstart + (PAGE_SIZE * free));
+// }
 
 
 static ptr_t allocate_virt_contiguous(struct vmmap* v, int pages)	{

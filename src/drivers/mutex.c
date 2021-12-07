@@ -11,6 +11,7 @@
 
 int mutex_putchar(struct vfsopen* o, int c);
 int mutex_open(struct vfsopen* n, const char* name, int flags, int mode);
+int mutex_close(struct vfsopen* o);
 
 struct mutex_user {
 	mutex_t metalock;
@@ -25,12 +26,23 @@ static struct fs_struct mutexuser = {
 	.name = "mutex",
 	.open = mutex_open,
 	.putc = mutex_putchar,
+	.close = mutex_close,
 	.perm = ACL_PERM(ACL_WRITE, ACL_WRITE, ACL_WRITE),
 };
 
+int mutex_close(struct vfsopen* o)	{
+	struct mutex_user* u = (struct mutex_user*)o->data;
+	if(PTR_IS_VALID(u))	{
+		if(PTR_IS_VALID(u->waiting))	{
+			kfree(u->waiting);
+		}
+		kfree(u);
+	}
+	return OK;
+}
 int mutex_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	int ret = OK;
-	struct mutex_user* u = (struct mutex_user*)kmalloc( sizeof(struct mutex_user) );
+	TZALLOC(u, struct mutex_user);
 	if(PTR_IS_ERR(u))	{
 		ret = -MEMALLOC;
 		goto fail0;
@@ -50,9 +62,6 @@ int mutex_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	n->data = (void*)u;
 	return n->fd;
 
-
-fail1:
-	kfree(u);
 fail0:
 	return ret;
 }
@@ -111,7 +120,7 @@ int mutex_putchar(struct vfsopen* o, int c)	{
 }
 
 int init_mutex(void)	{
-	device_register(&mutexuser);
+	return device_register(&mutexuser);
 }
 
 driver_init(init_mutex);

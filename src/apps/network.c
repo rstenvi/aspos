@@ -44,7 +44,6 @@ void send_tcp_socket(char* msg);
 
 
 int main(int argc, char* argv[])	{
-	memcmp("asd", "qwe", 3);
 	struct netif* n = (struct netif*)kmalloc( sizeof(struct netif) );
 	err_t ret;
 	int count;

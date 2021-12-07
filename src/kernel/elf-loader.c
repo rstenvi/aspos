@@ -89,20 +89,17 @@ enum MEMPROT _elf2memprot(int flag)	{
 bool is_elf(void* addr)	{
 	struct elf_hdr* hdr = (struct elf_hdr*)addr;
 	return hdr->e_ident[0] == 0x7f && 
-		strncmp(&(hdr->e_ident[1]), "ELF", 3) == 0;
+		strncmp((char*)(&(hdr->e_ident[1])), "ELF", 3) == 0;
 }
 
 // On Qemu, ramdisk is loaded at 0x44000000
 // which is 2MB below DTB
 // Should look in DTB and /chosen" -> "linux,initrd-start
-struct loaded_exe* elf_load(ptr_t* pgd, void* addr)	{
+struct loaded_exe* elf_load(ptr_t pgd, void* addr)	{
 	int i;
-	struct elf_sh* shdr;
+//	struct elf_sh* shdr;
 	struct elf_ph* phdr;
 	struct elf_hdr* hdr = (struct elf_hdr*)addr;
-	ptr_t curr;
-
-	struct loaded_exe* exe;
 
 
 	if(! is_elf(addr))	return ERR_ADDR_PTR(-1);
@@ -114,9 +111,7 @@ struct loaded_exe* elf_load(ptr_t* pgd, void* addr)	{
 
 	logi("ELF version %i | entry: 0x%x\n", hdr->e_version, hdr->e_entry);
 
-	exe = (struct loaded_exe*)kmalloc( sizeof(struct loaded_exe) );
-	ASSERT_FALSE(PTR_IS_ERR(exe), "Unable to allocate memory");
-	memset(exe, 0x00, sizeof(exe));
+	TZALLOC(exe, struct loaded_exe);
 
 	// Fill in exe varaibles
 	exe->entry = hdr->e_entry;
@@ -142,15 +137,12 @@ struct loaded_exe* elf_load(ptr_t* pgd, void* addr)	{
 
 		logd("\tmapping 0x%lx -> 0x%lx\n", rvaddr, rvaddr + msize);
 		mmu_map_pages_pgd(pgd, rvaddr, msize / PAGE_SIZE, PROT_RWX);
-//		mmu_map_pages(rvaddr, msize / PAGE_SIZE, PROT_RWX);
 
 		exe->regions[i].start = rvaddr;
 		exe->regions[i].size = msize;
 		exe->regions[i].prot = PROT_RWX;
 
 		// Start with everything as 0
-		//memset((void*)rvaddr, 0x00, msize);
-		//memcpy((void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
 		mmu_memset(pgd, (void*)rvaddr, 0x00, msize);
 		mmu_memcpy(pgd, (void*)(phdr->p_vaddr), (addr + phdr->p_offset), phdr->p_filsz);
 

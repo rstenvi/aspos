@@ -74,6 +74,8 @@
 
 #define UART_FR_RXFE (1 << 4)
 
+#define UART_DATA_BUF_SZ (4096 * 4)
+
 struct uart_read {
 	void* uaddr;
 	size_t max;
@@ -106,20 +108,21 @@ static struct uart_struct uart;
 
 static mutex_t uartlock = 0;
 
-#if defined(CONFIG_EARLY_UART)
-static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
-static bool poll_have_rx_data()	{
+__no_asan static bool poll_have_rx_data()	{
 	uint32_t r = 0;
 	DMAR32(uart.base + PL011_OFF_UARTFR, r);
 	return !(r & UART_FR_RXFE);
 }
 
-int uart_early_putc(char c)	{
+#if defined(CONFIG_EARLY_UART)
+static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk);
+
+__no_asan int uart_early_putc(char c)	{
 	DMAW32(uart.base, (uint32_t)c);
 	return OK;
 }
 
-int uart_early_getc(void)	{
+__no_asan int uart_early_getc(void)	{
 	uint32_t r = 0;
 	while(!poll_have_rx_data()) ;
 	DMAR32(uart.base, r);
@@ -127,17 +130,21 @@ int uart_early_getc(void)	{
 }
 
 
-int uart_early_write(const char* str)	{
+__no_asan int uart_early_write(const char* str)	{
+	int count = 0;
 	mutex_acquire(&uartlock);
-	while(*str != 0x00)	uart_early_putc(*str++);
+	while(*str != 0x00)	{
+		uart_early_putc(*str++);
+		count += 1;
+	}
 	mutex_release(&uartlock);
+	return count;
 }
 #endif
 
 int uart_early_init()	{
 	uart.base = UART_BASE;
 	mutex_clear(&uartlock);
-//	int r = _init_pl011(uart.base, TMP_BAUD, TMP_CLOCKFREQ);
 	return 0;
 }
 static void pl011_flush(ptr_t base)	{
@@ -160,15 +167,15 @@ static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk)	{
 	DMAW32(base + PL011_OFF_UARTIBRD, div);
 	DMAW32(base + PL011_OFF_UARTFBRD, frac);
 
-	/*
-	uint32_t div = (clk * 4) / baud;
+	
+	div = (clk * 4) / baud;
 
 	// Integer baud register
 	DMAW32(base + PL011_OFF_UARTIBRD, (div >> 6));
 
 	// Fractional baud register
 	DMAW32(base + PL011_OFF_UARTFBRD, (div & 0x3f));
-*/
+
 
 	// Clear all interrupts
 	DMAW32(base + PL011_OFF_UARTICR, ((1<<11)-1));
@@ -194,9 +201,8 @@ static int _init_pl011(ptr_t base, uint32_t baud, uint32_t clk)	{
 	return 0;
 }
 
-static int _check_read_job()	{
-
-}
+// static int _check_read_job()	{
+// }
 //int pl011_open(struct vfsopen* o, void* buf, int count)	{
 
 
@@ -207,7 +213,7 @@ static int check_wakeup_read(void)	{
 	// Check if anyone wants data
 	struct thread* t = uart.job.thread;
 	if(PTR_IS_ERR(t))	return OK;
-	if(t->id < 0)	return OK;
+//	if(t->id < 0)	return OK;
 
 	char last = uart.data[uart.curridx-1];
 	int ret = OK;
@@ -230,11 +236,19 @@ static int perform_read_job(int* res)	{
 	if(PTR_IS_ERR(uart.job.thread))	return OK;
 
 	int tid = uart.job.thread->id;
-	int dataread = (uart.curridx - uart.firstidx);
-	*res = dataread;
+	size_t dataread = (uart.curridx - uart.firstidx);
+	size_t doread = MIN(uart.job.max, dataread);
+	*res = doread;
 	if(uart.mode != CHAR_MODE_BYTE)	{
-		mmu_memcpy(thread_get_user_pgd(uart.job.thread), uart.job.uaddr, &(uart.data[uart.firstidx]), dataread);
-		uart.curridx = uart.firstidx = 0;
+		mmu_memcpy(thread_get_user_pgd(uart.job.thread), uart.job.uaddr, &(uart.data[uart.firstidx]), doread);
+		if(dataread > doread)	{
+			//logd("memmove %i, %i, %i\n", uart.firstidx, uart.firstidx + doread, dataread - doread);
+			memmove(&uart.data[uart.firstidx], &uart.data[uart.firstidx + doread], dataread - doread);
+			uart.curridx -= doread;
+		}
+		else	{
+			uart.curridx = uart.firstidx = 0;
+		}
 	}
 	else	{
 		*res = uart.data[uart.firstidx++];
@@ -250,9 +264,9 @@ int pl011_read(struct vfsopen* o, void* buf, size_t count)	{
 
 	int res = check_wakeup_read();
 	if(res == USER_WAKEUP)	{
-		int uret = 0, tid;
-		tid = perform_read_job(&uret);
-		return OK;
+		int uret = 0;
+		perform_read_job(&uret);
+		return uret;
 	}
 	return -BLOCK_THREAD;
 }
@@ -266,8 +280,8 @@ int pl011_getc(struct vfsopen* o)	{
 
 	res = check_wakeup_read();
 	if(res == USER_WAKEUP)	{
-		int uret = 0, tid;
-		tid = perform_read_job(&uret);
+		int uret = 0;
+		perform_read_job(&uret);
 		return OK;
 	}
 	return -BLOCK_THREAD;
@@ -293,49 +307,51 @@ void _try_write_pending(void)	{
 		kfree(buf);
 	}
 }
-int _shared_write(char* buf, size_t count, bool kernel)	{
-	int res, i;
+__no_asan int _shared_write(char* buf, size_t count, bool kernel)	{
+	int res = OK;
+	size_t i;
 
 	// We might write to this log from an error condition which resulted from a
 	// print. To avoid a deadlock in these instances, we only try and acquire
 	// the lock. If we can't get it, we add the buffer to a queue and try and
 	// write it afterwardsy.
-	res = mutex_try_acquire(&uartlock);
+//	res = mutex_try_acquire(&uartlock);
 	if(res == OK)	{
-		_try_write_pending();
 		for(i = 0; i < count; i++)	{
 			DMAW32(uart.base, (uint32_t)(buf[i]));
-		}
-		_try_write_pending();
-		mutex_release(&uartlock);
-
-		if(!kernel)	kfree(buf);
-	}
-	else	{
-		if(kernel)	{
-			char* _buf = (char*)kmalloc(count);
-			memcpy(_buf, buf, count);
-			xifo_push_back(uart.write_pending, _buf);
-		}
-		else	{
-			xifo_push_back(uart.write_pending, buf);
 		}
 	}
 	return res;
 }
 int kern_write(const char* buf, size_t count)	{
-	return _shared_write((char*)buf, count, true);
+	int res = -1;
+	mutex_acquire(&uartlock);
+	res = _shared_write((char*)buf, count, true);
+	mutex_release(&uartlock);
+	return res;
 }
+#define BUF_STACK_MAX (256)
 int pl011_write(struct vfsopen* o, const void* buf, size_t count)	{
-	int res;
-	size_t i;
-	char* arr;
+	int ret = 0;
+	size_t currc;
+	char arr[BUF_STACK_MAX];
 	ASSERT(ADDR_USER(buf));
-	arr = (char*)kmalloc(count);
-	memcpy_from_user(arr, buf, count);
 
-	_shared_write(arr, count, false);
-	return count;
+	mutex_acquire(&uartlock);
+	//arr = (char*)kmalloc(count + 1);
+	while(count > 0)	{
+		// What to copy in this round
+		currc = MIN(BUF_STACK_MAX, count);
+
+		// Copy in buffer and write
+		memcpy_from_user(arr, (buf + ret), currc);
+		_shared_write(arr, currc, false);
+		ret += currc;
+		count -= currc;
+	}
+	mutex_release(&uartlock);
+
+	return ret;
 }
 
 static int _set_mode(ptr_t arg)	{
@@ -360,15 +376,9 @@ int pl011_fcntl(struct vfsopen* o, ptr_t cmd, ptr_t arg)	{
 	return res;
 }
 
-int pl011_receive(void)	{
+int _receive_single(void)	{
 	uint32_t r = 0;
-	int res;
-	mutex_acquire(&uartlock);
-
-	DMAR32(uart.base + PL011_OFF_UARTRSR, r);
-	ASSERT_TRUE(r == 0, "error in uart\n");
-
-	DMAR32(uart.base, r);
+	DMAR32(uart.base + PL011_OFF_UARTDR, r);
 
 	char c = (char)(r & 0xff);
 	if(uart.mode == CHAR_MODE_LINE_ECHO || uart.mode == CHAR_MODE_LINE)	{
@@ -377,13 +387,13 @@ int pl011_receive(void)	{
 		// Backspace
 		if(c == 0x7f)	{
 			c = '\b';
-			if(uart.curridx)	{
+			if(uart.curridx > 0)	{
 				uart.data[--uart.curridx] = 0x00;
 				if(uart.mode == CHAR_MODE_LINE_ECHO)	{
 					pl011_putc(NULL, '\b'); pl011_putc(NULL, ' '); pl011_putc(NULL, '\b');
 				}
 			}
-			goto out;
+			return 0;
 		}
 
 
@@ -391,7 +401,23 @@ int pl011_receive(void)	{
 			pl011_putc(NULL, c);
 		}
 	}
-	uart.data[uart.curridx++] = c;
+	if(uart.curridx < UART_DATA_BUF_SZ - 1)	{
+		uart.data[uart.curridx++] = c;
+	}
+	return 0;
+}
+
+int pl011_receive(void)	{
+	uint32_t r = 0;
+	int res;
+	mutex_acquire(&uartlock);
+
+	DMAR32(uart.base + PL011_OFF_UARTRSR, r);
+	ASSERT_TRUE(r == 0, "error in uart\n");
+
+	while(poll_have_rx_data())	{
+		_receive_single();
+	}
 
 	res = check_wakeup_read();
 
@@ -400,7 +426,6 @@ int pl011_receive(void)	{
 		int tid = perform_read_job(&dataread);
 		thread_wakeup(tid, dataread);
 	}
-out:
 	mutex_release(&uartlock);
 	return OK;
 }
@@ -412,6 +437,7 @@ int pl011_irq_cb(int irqno)	{
 		pl011_receive();
 	}
 	DMAW32(uart.base + PL011_OFF_UARTICR, r);
+	return OK;
 }
 
 static int _pl011_irq_init(int type, int irqno, int irqflags)	{
@@ -445,12 +471,13 @@ static struct fs_struct consoledev = {
 #define TMP_INTR_FLAGS 0x04
 
 int init_pl011(void)	{
-	logi("pl011 not ready yet\n");
+	uart.base = mmu_map_dma(UART_BASE, UART_BASE + 0x1000);
+	mutex_clear(&uartlock);
 
-	uart.data = (uint8_t*)vmmap_alloc_page(PROT_RW, 0);
+	uart.data = (uint8_t*)vmmap_alloc_pages(UART_DATA_BUF_SZ / 4096, PROT_RW, 0);
 	uart.maxdata = PAGE_SIZE;
 	uart.curridx = uart.firstidx = 0;
-	uart.mode = CHAR_MODE_LINE;
+	uart.mode = CHAR_MODE_BINARY;
 
 	uart.job.thread = NULL;
 
@@ -466,12 +493,10 @@ int init_pl011(void)	{
 	device_register(&consoledev);
 	return 0;
 }
-
-driver_init(init_pl011);
-
-int pl011_highmem_init(ptr_t linstart) {
-	mmu_map_dma(uart.base, uart.base + 0x1000);
-	uart.base += linstart;
-}
-
-highmem_init(pl011_highmem_init);
+early_hw_init(init_pl011);
+// driver_init(init_pl011);
+// int pl011_highmem_init(ptr_t linstart) {
+// 	mmu_map_dma(uart.base, uart.base + 0x1000);
+// 	uart.base += linstart;
+// }
+// highmem_init(pl011_highmem_init);

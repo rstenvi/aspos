@@ -40,7 +40,7 @@ typedef int (*deviceinit_t)(void);
 /**
 * Signature for driver init function registered with :c:type:`highmem_init`.
 */
-typedef int (*highmeminit_t)(ptr_t);
+//typedef int (*highmeminit_t)(ptr_t);
 
 
 
@@ -81,7 +81,7 @@ typedef int (*highmeminit_t)(ptr_t);
 *
 * The function will receive the start of the linear region as the first argument.
 */
-#define highmem_init(func) __kdatahmemfunc highmeminit_t _UNIQUE_ID(func,__LINE__) = func
+//#define highmem_init(func) __kdatahmemfunc highmeminit_t _UNIQUE_ID(func,__LINE__) = func
 
 /**
 * Function which setup hardware that other drivers may be dependent on.

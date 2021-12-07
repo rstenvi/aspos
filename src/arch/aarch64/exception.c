@@ -32,7 +32,7 @@ static void check_wakeup_cpus(void)	{
 	}
 }
 
-static int handle_irq(struct exception* exc)	{
+static int handle_irq(__unusedvar struct exception* exc)	{
 	int irq = gic_find_pending();
 	if(irq > 0)	{
 		gic_disable_intr(irq);
@@ -51,8 +51,12 @@ static int handle_irq(struct exception* exc)	{
 		/**
 		* Any IRQ is considered an opportunity to wake up more CPU cores if
 		* there is any additional work.
+		* TODO:
+		* - Disabled because it can currently lead to wrong results being passed
+		* 	back to user-mode. Need to ensure that scheduling only happens when
+		* 	it's safe.
 		*/
-		check_wakeup_cpus();
+		//check_wakeup_cpus();
 
 		/*
 		* Call any registered callbacks
@@ -121,6 +125,26 @@ static int handle_irq(struct exception* exc)	{
 #define ESR_ISS_WNR_WRITE  (0b1)
 
 
+#define ESR_ISS_FSC_MASK               (0b111111)
+#define ESR_ISS_FSC_ADDR_SIZE_FAULT_L0 (0)
+#define ESR_ISS_FSC_ADDR_SIZE_FAULT_L1 (0b00001)
+#define ESR_ISS_FSC_ADDR_SIZE_FAULT_L2 (0b00010)
+#define ESR_ISS_FSC_ADDR_SIZE_FAULT_L3   (0b00011)
+
+#define ESR_ISS_FSC_TRANSLATION_FAULT_L0 (0b00100)
+#define ESR_ISS_FSC_TRANSLATION_FAULT_L1 (0b00101)
+#define ESR_ISS_FSC_TRANSLATION_FAULT_L2 (0b00110)
+#define ESR_ISS_FSC_TRANSLATION_FAULT_L3 (0b00111)
+
+#define ESR_ISS_FSC_ACCESS_FLAG_L1 (0b01001)
+#define ESR_ISS_FSC_ACCESS_FLAG_L2 (0b01010)
+#define ESR_ISS_FSC_ACCESS_FLAG_L3 (0b01011)
+
+#define ESR_ISS_FSC_PERM_FLAG_L1 (0b01101)
+#define ESR_ISS_FSC_PERM_FLAG_L2 (0b01110)
+#define ESR_ISS_FSC_PERM_FLAG_L3 (0b01111)
+
+// 0x432008
 //#define ESR_ISS_
 
 // normal syscall ESR: 0x56000000
@@ -132,17 +156,29 @@ static int handle_abort(struct exception* exc, bool user, bool instr)	{
 	ptr_t far;
 	read_far_el1(far);
 	bool write = (ESR_ISS_WNR_VAL(exc->esr) == ESR_ISS_WNR_WRITE);
-	//logi("abort: user=%i instr=%i write=%i elr=%lx addr=%lx\n", user, instr, write, exc->elr, far);
-	if(mmu_check_page_cloned(far, user, instr, write) == true)	{
-		// TODO: Think this is correct to restart instruction
-		//exc->elr -= 4;
-		fixed = true;
-		//logd("Fixed mmu fault\n");
+	int ec = GET_ESR_EC(exc->esr);
+	int fsc = exc->esr & ESR_ISS_FSC_MASK;
+
+	logd("abort @ %lx EC %x FSC %x\n", far, ec, fsc);
+	if(ec == ESR_EC_INSTR_ABRT_LEL || ec == ESR_EC_DATA_ABRT_LEL)	{
+		if(fsc == ESR_ISS_FSC_TRANSLATION_FAULT_L0)	{
+			PANIC("Translation fault on TTBR\n");
+		}
+		else if(fsc >= ESR_ISS_FSC_TRANSLATION_FAULT_L1 && fsc <= ESR_ISS_FSC_PERM_FLAG_L3)	{
+			fixed = mmu_fix_translation_fault(far, write);
+		}
+		if(!fixed && user && write)	{
+			int bytes = thread_region_mapped(far, 8, true);
+			fixed = (bytes == 8);
+		}
+	} else if(ec == ESR_EC_INSTR_ABRT_SEL)	{
+		loge("Instruction abort EL1: EC 0x%x | fsc: 0x%x far: 0x%lx\n", ec, fsc, far);
+	} else if(ec == ESR_EC_DATA_ABRT_SEL)	{
+		loge("Data abort EL1: EC 0x%x | fsc: 0x%x far: 0x%lx\n", ec, fsc, far);
+	} else {
+		loge("Unknown: EC 0x%x | fsc: 0x%x far: 0x%lx\n", ec, fsc, far);
 	}
-	else if(user && write)	{
-		int bytes = thread_region_mapped(far, 8, true);
-		fixed = (bytes == 8);
-	}
+
 	if(!fixed)	{
 		memory_error(far, exc->elr, user, instr, write);
 	}
@@ -155,9 +191,9 @@ static int handle_align(struct exception* exc, bool pc)	{
 }
 static int handle_sync(struct exception* exc)	{
 	int ret;
-	int esr = GET_ESR_EC(exc->esr);
+	int ec = GET_ESR_EC(exc->esr);
 
-	switch(esr)	{
+	switch(ec)	{
 	case ESR_EC_SVC_64:
 		ret = handle_svc(exc);
 		break;
@@ -180,14 +216,15 @@ static int handle_sync(struct exception* exc)	{
 		ret = handle_align(exc, false);
 		break;
 	default:
-		logw("Don't know how to handle ESR: %x\n", esr);
+		logw("Don't know how to handle EC: %x IP %lx\n", ec, exc->elr);
 		PANIC("halt");
+		ret = -GENERAL_FAULT;
 		break;
 	}
 	return ret;
 }
 
-static int exc_unknown(struct exception* exc)	{
+__noreturn static int exc_unknown(__unusedvar struct exception* exc)	{
 //	uart_early_putc('Y');
 	while(1);
 }

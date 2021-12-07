@@ -101,7 +101,7 @@ void* xzalloc(int bytes)	{
 
 	ret = kmalloc(bytes);
 	if(ret == NULL)	{
-		printf("Unable to allocate %i bytes of memory\n");
+		printf("Unable to allocate %i bytes of memory\n", bytes);
 		exit(1);
 	}
 
@@ -116,7 +116,7 @@ void dump_random(int count)	{
 	printf("Reading %i bytes of random data\n", count);
 	buf = (char*)kmalloc(count);
 	if(buf == NULL)	{
-		printf("Unable to allocate %i bytes of data\n");
+		printf("Unable to allocate %i bytes of data\n", count);
 		exit(1);
 	}
 	printf("Allocated data\n");
@@ -126,7 +126,7 @@ void dump_random(int count)	{
 	printf("Read can be slow if new data must be generated\n");
 	res = xread(fd, buf, count);
 	printf("read %i bytes\n", res);
-	hexdump(buf, count);
+	hexdump((uint8_t*)buf, count);
 	close(fd);
 }
 
@@ -154,7 +154,7 @@ int test_umem(void)	{
 
 	res = seek_read(fd, NULL, sizeof(int), (size_t)&fd);
 	if(res != sizeof(int))	{
-		printf("Expected %i but got %i\n", sizeof(int), res);
+		printf("Expected %li but got %i\n", sizeof(int), res);
 		goto err1;
 	}
 
@@ -293,6 +293,7 @@ void test_proc(void)	{
 	if(ret > 0)	{
 		printf("version: '%s'\n", buf);
 	}
+	close(fd);
 }
 
 void write_block(void)	{
@@ -333,7 +334,7 @@ void test_read_block(int bytes, int offset)	{
 	fd = xopen("/dev/block", OPEN_FLAG_RW, 0);
 	lseek(fd, offset, SEEK_SET);
 	res = xread(fd, buf, bytes);
-	hexdump(buf, bytes);
+	hexdump((uint8_t*)buf, bytes);
 	close(fd);
 }
 
@@ -435,7 +436,7 @@ int test_socket(void)	{
 
 		res = read(fd, buf, BUF_MAX);
 		if(res < 0)	return res;
-		printf("Read '%s' from remote host\n");
+		printf("Read '%s' from remote host\n", buf);
 	}
 
 	msleep(100);
@@ -461,7 +462,7 @@ int test_socket(void)	{
 	return 0;
 }
 #define KCOV_MAX_ENTRIES (1000)
-#define ALLOC_BUFFER     (4096 * 256)
+#define ALLOC_BUFFER     (4096 * 16)
 
 int _kcov_pre(void)	{
 	int fd, res;
@@ -476,7 +477,7 @@ int _kcov_pre(void)	{
 void* _kcov_mmap(int fd, bool enable)	{
 	void* addr;
 	int res;
-	addr = mmap(NULL, ALLOC_BUFFER, MAP_PROT_READ|MAP_PROT_WRITE, MAP_NON_CLONED, fd);
+	addr = mmap(NULL, ALLOC_BUFFER, MAP_PROT_READ|MAP_PROT_WRITE, MAP_NON_CLONED|MAP_ALLOC_SHARED, fd);
 
 	if(enable)	{
 		res = fcntl(fd, FCNTL_KCOV_ENABLE);
@@ -486,16 +487,17 @@ void* _kcov_mmap(int fd, bool enable)	{
 	return addr;
 }
 int _kcov_dump(void* addr)	{
-	int i;
+	uint32_t i;
 	struct kcov_data* data = (struct kcov_data*)addr;
 	printf("Read %i entries\n", data->currcount);
 	for(i = 0; i < data->currcount; i++)	{
 		printf("0x%lx\n", data->entries[i]);
 	}
 	WRITE_ONCE(data->currcount, 0);
+	return OK;
 }
 int test_kcov(void)	{
-	int fd, res, i;
+	int fd, res = OK, i;
 	void* addr;
 
 	fd = _kcov_pre();
@@ -504,7 +506,7 @@ int test_kcov(void)	{
 	if(!addr)	goto err1;
 
 
-	for(i = 0; i < 2; i++)	{
+	for(i = 0; i < 1; i++)	{
 		res = fcntl(fd, FCNTL_KCOV_ENABLE);
 		if(res < 0)	goto err1;
 
@@ -523,7 +525,7 @@ err1:
 }
 
 int test_kcov2(void)	{
-	int fd, fdv, fdproc, res, ret;
+	int fd, fdv, fdproc, ret, res = OK;
 	void* addr;
 	char buf[MAX_BUF];
 
@@ -582,7 +584,7 @@ int test_fork(void)	{
 	//	write(STDOUT, "Child\n", 6);
 		//exit_thread(0);
 		printf("Child: %i\n", val);
-		msleep(10000);
+		msleep(5000);
 //		write(STDOUT, "Child\n", 6);
 	}
 	else	{

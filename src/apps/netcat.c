@@ -34,7 +34,6 @@ int netcat_client(char* ip, uint16_t port)	{
 		return res;
 	}
 
-	char c;
 	printf("Connected and ready...\n");
 	while(true)	{
 		len = read(STDIN, buf, MAX_READ);
@@ -80,7 +79,7 @@ int main(int argc, char* argv[])	{
 	}
 
 	if(val < 0 || (val >= (1<<16)))	{
-		printf("Port value '%i' is invalid\n", val);
+		printf("Port value '%li' is invalid\n", val);
 		exit(1);
 	}
 	port = val;

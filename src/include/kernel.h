@@ -25,6 +25,27 @@
 # define CONFIG_SMP 1
 #endif
 
+
+#define SMCC_FAST  (1UL << 31)
+#define SMCC_YIELD (0UL)
+#define SMCC_64    (1UL << 30)
+#define SMCC_32    (0UL)
+#define SMCC_OEN_SHIFT (24)
+#define SMCC_OEN_BITS  (6)
+#define SMCC_OEN_MASK  ((1UL << SMCC_OEN_BITS) - 1)
+
+#define TSP_ID   (0x32UL)
+#define OPTEE_ID (0x3eUL)
+
+#define SMCC_OEN(id) ((id & SMCC_OEN_MASK) << SMCC_OEN_SHIFT)
+#define SMCC_FNID(id) (id & 0xffffUL)
+
+
+#define SMCC_FAST64(oen, id) (SMCC_FAST | SMCC_64 | SMCC_OEN(oen) | SMCC_FNID(id))
+#define SMCC_FAST32(oen, id) (SMCC_FAST | SMCC_32 | SMCC_OEN(oen) | SMCC_FNID(id))
+#define SMCC_YIELD64(oen, id) (SMCC_YIELD | SMCC_64 | SMCC_OEN(oen) | SMCC_FNID(id))
+#define SMCC_YIELD32(oen, id) (SMCC_YIELD | SMCC_32 | SMCC_OEN(oen) | SMCC_FNID(id))
+
 /*
 #define THREAD_STACK_BOTTOM(tid) \
 	(ARM64_VA_THREAD_STACKS_START + (PAGE_SIZE * (CONFIG_THREAD_STACK_BLOCKS * ntid)))
@@ -45,6 +66,21 @@ void panic(const char*, const char*, int);
 
 // TODO: Not in use yet, but might be needed in the future
 //#define VMMAP_FLAG_DEVICE (1 << 2)
+
+
+#define THREAD_UMODE true
+#define THREAD_KMODE false
+#define THREAD_READY true
+#define THREAD_NOT_READY false
+
+#define THREAD_ADD_FRONT true
+#define THREAD_ADD_BACK  false
+
+#define LOCK_HELD true
+#define LOCK_NOT_HELD false
+
+#define THREAD_DO_SCHEDULE true
+#define THREAD_NO_SCHEDULE false
 
 struct thread;
 struct bm;
@@ -87,7 +123,7 @@ struct NetConfig {
 struct dtb_property {
 	char* name;
 	int valsize;
-	void* data;
+	ptr_t data;
 	enum dtb_type type;
 	union {
 		char* string;
@@ -111,15 +147,15 @@ struct dtb_node {
 
 
 struct pmm {
+	mutex_t lock;
 	uint8_t* bitmap;
 	ptr_t start, end;
 	size_t pages;
-	mutex_t lock;
 };
 
 struct sbrk {
 	void* addr;
-	size_t curroffset, numpages, mappedpages;
+	int curroffset, numpages, mappedpages;
 	mutex_t lock;
 };
 
@@ -133,6 +169,7 @@ struct mmapped {
 	size_t pages;
 	int flags;
 	enum MEMPROT prot;
+	int references;
 };
 
 // The size of each slab entry, it's possible to allocate larger elements, one
@@ -151,14 +188,8 @@ struct va_region {
 };
 
 struct process {
-	/** 
-	* Lock should be held briefly and only when doing the following:
-	* - Acquiring a unique file id (done when using `fileid_unique`)
-	* - Mapping in user memory
-	* - Writing to individual variables which are not list, queues, bitmap, etc.
-	* - Configuring values in process
-	*/
 	mutex_t lock;
+
 #if defined(CONFIG_MULTI_PROCESS)
 	int pid;
 	int num_threads;
@@ -170,9 +201,19 @@ struct process {
 	struct llist* fds;
 	struct bm* fileids;
 	struct userslab* userslab;
-	struct llist* memregions;
+	//struct llist* memregions;
+
+	// All the regions the process has mmapped
 	struct llist* mmapped;
-	struct Vec* varegions;
+
+
+	//struct Vec* varegions;
+
+	/*
+	* Keep alive even when no threads belong to the process.
+	* Mostly used by user-mode drivers where the thread can be created by cuse
+	* driver.
+	*/
 	bool keepalive;
 	struct user_thread_info* thread_user_addr;
 };
@@ -192,21 +233,11 @@ struct driver_job_unmap {
 struct driver_job {
 	int sysno;
 	struct thread* caller;
-	/**
-	* If this is a user-mode 
-	*/
 	struct process* driver;
-	/**
-	* Different data stored on different syscalls:
-	* open: struct thread_fd_open
-	* read: struct thread_fd_open
-	* write: struct thread_fd_open
-	*/
 	void* data;
 };
 
 struct tlist;
-
 
 /**
 * Information we store about a thread.
@@ -222,7 +253,8 @@ struct thread {
 	ptr_t retval;
 
 	// This is blocking, so there can only be one pending
-	struct readwritev* pending;
+	//struct readwritev* pending;
+	struct thread_fd_open* pending;
 
 	/*
 	* Any signals pending to the thread.
@@ -234,12 +266,17 @@ struct thread {
 #endif
 
 	struct user_thread_info tinfo;
+
+	struct mmapped* stackmm;
 };
 
 /**
 * All the information associated with all running threads.
 */
 struct threads {
+	/** Lock which determines if any CPU is working on threads. */
+	mutex_t lock;
+
 	/**
 	* Thread identifiers (TID) which are free to use.
 	*/
@@ -267,7 +304,7 @@ struct threads {
 	* cannot be dependent on memory values which are shared writable among the
 	* different threads, such as the stack.
 	*/
-	struct thread* busyloop;
+	//struct thread* busyloop;
 
 	/**
 	* Threads waiting to run, this is ordered in a simple first-in-first-out
@@ -280,6 +317,8 @@ struct threads {
 	* future.
 	*/
 	struct tlist* sleeping;
+
+	struct tlist* hangs;
 
 	/**
 	* Threads which are blocked waiting on some driver.
@@ -318,8 +357,6 @@ struct threads {
 	struct process proc;
 #endif
 
-	/** Lock which determines if any CPU is working on threads. */
-	mutex_t lock;
 
 	ptr_t thread_exit;
 	ptr_t exc_exit;
@@ -391,10 +428,14 @@ struct cpu {
 #if CONFIG_COLLECT_STATS > 0
 	struct stats stats;
 #endif
+
+	uint32_t svcid;
+
+	struct thread* busyloop;
 };
 
 typedef int (*cpu_on_t)(int,ptr_t);
-typedef void (*poweroff_t)(void);
+typedef __noreturn void (*poweroff_t)(void);
 
 /**
 * Information about all CPUs on the system.
@@ -435,7 +476,7 @@ struct os_data {
 	* Note:
 	*	This should be removed, as we only use dtbroot after initialization.
 	*/
-	void* dtb;
+	ptr_t dtb;
 	struct dtb_node* dtbroot;
 	ptr_t cpu_reset_func;
 #if defined(CONFIG_EARLY_UART)
@@ -480,12 +521,23 @@ __force_inline static inline mutex_t* cpu_loglock() { return &(osdata.loglock); 
 static inline struct dtb_node* cpu_get_parsed_dtb() { return osdata.dtbroot; }
 static inline struct pmm* cpu_get_pmm() { return &(osdata.pmm); }
 static inline struct sbrk* cpu_get_kernbrk() { return &(osdata.kernbrk); }
-static inline void* cpu_get_dtb() { return osdata.dtb; }
+static inline ptr_t cpu_get_dtb() { return osdata.dtb; }
 static inline ptr_t cpu_get_pgd() { return osdata.kpgd; }
 static inline ptr_t cpu_linear_offset() { return osdata.linear_offset; }
 static inline struct vmmap* cpu_get_vmmap() { return &(osdata.vmmap); }
 static inline int cpu_cores_running(void) { return osdata.cpus.started; }
-
+static inline uint32_t svcid_inc(void) {
+	struct cpu* curr = curr_cpu();
+	curr->svcid = (curr->svcid + 1) % (1 << 24);
+	curr->svcid |= (cpu_id() << 24);
+	return curr->svcid;
+}
+static inline struct thread* cpu_busyloop(void)	{
+	struct cpu* cpu = curr_cpu();
+	ASSERT(cpu);
+	return cpu->busyloop;
+}
+static inline uint32_t curr_svcid(void) { return curr_cpu()->svcid; }
 
 
 
@@ -518,6 +570,10 @@ static inline void set_current_thread(struct thread* t)	{
 static inline int current_tid(void) {
 	struct thread* t = current_thread();
 	return PTR_IS_VALID(t) ? t->id : -1;
+}
+static inline void set_pending(struct thread_fd_open* fdo)	{
+	struct thread* t = current_thread();
+	t->pending = fdo;
 }
 
 
@@ -587,8 +643,14 @@ static inline void stat_dec_taken_page() { }
 //static inline ptr_t cpu_get_user_pgd() { return osdata.upgd; }
 //static inline void cpu_set_user_pgd(ptr_t o) { osdata.upgd = o; }
 static inline void cpu_set_user_pgd(ptr_t o) { current_proc()->user_pgd = o; }
-static inline ptr_t cpu_get_user_pgd() { return current_proc()->user_pgd; }
-static inline ptr_t* thread_get_user_pgd(struct thread* t) { return (ptr_t*)(t->owner->user_pgd); }
+static inline ptr_t cpu_get_user_pgd() {
+	struct process* p = current_proc();
+	if(!PTR_IS_VALID(p))	{
+		PANIC("PANIC: Asked for user PGD in invalid context\n");
+	}
+	return p->user_pgd;
+}
+static inline ptr_t thread_get_user_pgd(struct thread* t) { return t->owner->user_pgd; }
 
 
 
@@ -661,18 +723,18 @@ static inline uint16_t be_u16_to_cpu(uint16_t v)	{
 }
 
 
-__force_inline static inline uint32_t be_u32_to_be(void* data)	{
+__force_inline static inline uint32_t be_u32_to_be(ptr_t data)	{
 	return *((uint32_t*)data);
 }
 
 
-__force_inline static inline uint32_t be_u32_to_le(void* data)	{
+__force_inline static inline uint32_t be_u32_to_le(ptr_t data)	{
 	uint8_t* d = (uint8_t*)data;
 	uint32_t r = (uint32_t)(d[0]) << 24 | (uint32_t)(d[1]) << 16 | (uint32_t)(d[2]) << 8 | (uint32_t)(d[3]);
 	return r;
 }
 
-static inline uint32_t be_u32_to_cpu(void* data)	{
+static inline uint32_t be_u32_to_cpu(ptr_t data)	{
 #if defined(ARCH_LITTLE_ENDIAN)
 	return be_u32_to_le(data);
 #elif defined(ARCH_BIG_ENDIAN)
@@ -738,12 +800,12 @@ static inline uint32_t cpu_u32_to_be(uint32_t v)	{
 #define DMAW64(addr, val) *((volatile uint64_t*)(addr)) = val;
 */
 // ---------------------- dtb.c --------------------- //
-uint32_t dtb_translate_ref(void* ref);
-void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr);
+uint32_t dtb_translate_ref(ptr_t ref);
+ptr_t dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr);
 
 void dtb_destroy(struct dtb_node* root);
 void dtb_second_pass(struct dtb_node* root);
-struct dtb_node* dtb_parse_data(void* dtb);
+struct dtb_node* dtb_parse_data(ptr_t dtb);
 struct dtb_node* dtb_find_name(const char* n, bool exact, int skip);
 uint32_t* dtb_get_ints(struct dtb_node* node, const char* name, int* count);
 const char* dtb_get_string(struct dtb_node* node, const char* name);
@@ -757,6 +819,7 @@ int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
 // ----------------------- pmm.c ---------------------- //
 int pmm_init();
 ptr_t pmm_alloc(int pages);
+ptr_t pmm_allocz(int pages);
 int pmm_mark_mem(ptr_t start, ptr_t end);
 int pmm_free(ptr_t page);
 int pmm_add_ref(ptr_t page);
@@ -781,6 +844,8 @@ void vmmap_unmap_pages(ptr_t vaddr, int pages);
 int init_threads();
 struct thread* new_thread_kernel(struct process*, ptr_t, ptr_t, bool user, bool addlist);
 
+int _thread_free_vfsopen(struct thread_fd_open* fdo);
+void thread_add_readylist(struct thread* t);
 ptr_t thread_mmap_mem(void* addr, size_t length, enum MEMPROT prot, int flags, bool ins);
 //int thread_proc_keepalive(void);
 int thread_create_driver_thread(struct thread_fd_open* fdo, ptr_t entry, int sysno, int num, ...);
@@ -792,10 +857,11 @@ int thread_wait_tid(int tid, bool sched, bool lockheld);
 int thread_wait_pid(int pid);
 int thread_get_tid(void);
 int thread_get_pid(void);
+int thread_is_mapped(ptr_t _addr);
 int thread_tick_sleep(int ticks);
-int thread_ms_sleep(ptr_t ms);
+int thread_ms_sleep(int ms);
 int thread_sleep(ptr_t seconds);
-int thread_schedule_next(ptr_t);
+int thread_schedule_next(ptr_t, bool);
 int thread_exit(ptr_t ret);
 int thread_ready(void);
 int thread_add_ready(struct thread* t, bool front, bool lockheld);
@@ -825,6 +891,7 @@ sysfilter_t thread_get_filter(void);
 int thread_getuser(struct user_id* user);
 int thread_setuser(struct user_id* user);
 int thread_region_mapped(ptr_t addr, int bytes, bool mapin);
+bool thread_has_busyloop(void);
 
 #define VFS_JOB_READ  1
 #define VFS_JOB_WRITE 2
@@ -840,11 +907,11 @@ struct readwritev {
 typedef int (*vjob_perform)(struct vfsopen*,void*,size_t);
 
 // -------------------------- elf-load.c --------------------- //
-struct loaded_exe* elf_load(ptr_t*, void* addr);
+struct loaded_exe* elf_load(ptr_t, void* addr);
 
 
 // -------------------------- power.c ------------------------- //
-void kern_poweroff(bool force);
+__noreturn void kern_poweroff(bool force);
 
 // -------------------------- clibintegration.c --------------- //
 
@@ -857,7 +924,7 @@ ssize_t _read(int fd, void* buf, size_t count);
 off_t _lseek(int fd, off_t offset, int whence);
 int _fstat(int fd, struct stat *statbuf);
 int _close(int fd);
-double __trunctfdf2(long double a);
+long __trunctfdf2(double a);
 
 
 
@@ -945,22 +1012,22 @@ static inline bool user_ptr_valid(ptr_t va, size_t len)	{
 		return false;
 	}*/
 	if(!ADDR_USER(va))	{
-		logi("Received pointer which doesn't belong to user mode: %lx\n", va);
+		//logi("Received pointer which doesn't belong to user mode: %lx\n", va);
 		return false;
 	}
 	if(!mmu_addr_mapped(va, len, MMU_ALL_MAPPED))	{
-		logi("VA %lx (0x%lx) is not mapped in\n", va, len);
+		//logi("VA %lx (0x%lx) is not mapped in\n", va, len);
 		return false;
 	}
 	return true;
 }
 static inline bool user_addr_valid(ptr_t va, size_t len)	{
 	if(!ADDR_USER(va) || va == 0)	{
-		logi("Received pointer which doesn't belong to user mode: %lx\n", va);
+		//logi("Received pointer which doesn't belong to user mode: %lx\n", va);
 		return false;
 	}
 	if(!mmu_addr_mapped(va, len, MMU_ALL_MAPPED))	{
-		logi("VA %lx (0x%lx) is not mapped in\n", va, len);
+		//logi("VA %lx (0x%lx) is not mapped in\n", va, len);
 		return false;
 	}
 	return true;

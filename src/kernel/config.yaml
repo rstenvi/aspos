@@ -108,7 +108,6 @@ timer_ms_delay:
 early_uart:
   type: bool
   default: false
-  constraint: "not {{value}}"
   help:
     Early UART is used to print debug information before the system for drivers
     have been fully set up. Have been disabled until better solution is

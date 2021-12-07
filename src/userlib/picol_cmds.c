@@ -19,6 +19,9 @@ int picol_cat(struct picolInterp *i, int argc, char **argv, void *pd)	{
 
 int picol_poweroff(struct picolInterp *i, int argc, char **argv, void *pd)	{
 	poweroff();
+
+	// Shouldn't return here
+	return -GENERAL_FAULT;
 }
 
 static void normalize_input(char* str, int len)	{

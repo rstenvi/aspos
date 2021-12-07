@@ -21,12 +21,23 @@ static struct virtio_struct virtio;
 
 static inline void device_reset(ptr_t base)	{ DMAW32(base + VIRTIO_OFF_STATUS, 0); }
 
-static int _init_virtio_dev(ptr_t base, ptr_t size, struct virtio_dev_struct* virt)	{
+static int _init_virtio_dev(ptr_t base, ptr_t size, struct virtio_dev_struct* virt, ptr_t* lastdma)	{
 	uint32_t res;
 
-	mmu_map_dma(base, base + size);
+	ASSERT(size == 512);
 
-	base += cpu_linear_offset();
+	// The MMU maps in pages, so we will map in more than one device each time we
+	// map in a DMA region. As a result, we must check if our current base has
+	// already been mapped in or not.
+	ptr_t baseoff = base % PAGE_SIZE;
+	if(baseoff == 0)	{
+		base = mmu_map_dma(base, base + size);
+		*lastdma = base;
+	} else {
+		base = *lastdma + baseoff;
+	}
+
+//	base += cpu_linear_offset();
 
 	// Check magic value
 	DMAR32(base + VIRTIO_OFF_MAGIC, res);
@@ -75,6 +86,7 @@ static int _virtio_inc_array(void)	{
 
 int virtio_register_cb(enum DEVTYPE type, virtio_init_t cb)	{
 	virtio.inits[type] = cb;
+	return OK;
 }
 
 int virtio_generic_init(struct virtio_dev_struct* dev, uint64_t features)	{
@@ -181,7 +193,7 @@ int virtq_destroy_alloc(struct virtio_dev_struct* dev)	{
 	return OK;
 }
 
-ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail, bool chain)	{
+ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, int bytes, uint16_t flags, int queue, bool updateavail, bool chain)	{
 	struct virtq* vq = dev->virtq;
 	ptr_t vaddr = (ptr_t)vq->queues[queue].desc;
 	int idx = vq->queues[queue].idx;
@@ -242,14 +254,14 @@ ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t f
 	}
 
 	vq->queues[queue].idx += 1;
-	dsb();
+	smp_mb();
 
 	return pdata;
 }
 
 struct virtq_used* virtq_get_used(struct virtio_dev_struct* dev, int queue)	{
 	struct virtq_used* u = NULL;
-	struct virtq_used_elem* ret = NULL;
+//	struct virtq_used_elem* ret = NULL;
 	struct virtq* vq = dev->virtq;
 	ptr_t vaddr = (ptr_t)vq->queues[queue].desc;
 	uint32_t bytes1 = ((vq->qsz * sizeof(struct virtq_desc)) + 4 + (vq->qsz * sizeof(uint16_t)));
@@ -270,14 +282,13 @@ int virtio_complete_init(struct virtio_dev_struct* dev)	{
 	DMAR32(dev->base + VIRTIO_OFF_STATUS, tmp);
 	ASSERT_TRUE(tmp == VIRTIO_STATUS_DRIVER_OK, "");
 
-	isb();
-	dsb();
+	smp_mb();
 
 	return OK;
 }
 
 int virtq_write_queue(struct virtio_dev_struct* dev, ptr_t paddr, int idx)	{
-	uint32_t tmp;
+	int32_t tmp;
 	struct virtq* vq = dev->virtq;
 
 	// Select appropriate register
@@ -307,7 +318,6 @@ int virtq_write_queue(struct virtio_dev_struct* dev, ptr_t paddr, int idx)	{
 
 int virtio_virtq_init(struct virtio_dev_struct* dev)	{
 	struct virtq* vq = dev->virtq;
-	uint32_t tmp;
 	int res, i;
 	ptr_t paddr;
 
@@ -324,7 +334,7 @@ int init_virtio(void)	{
 	virtio.devices = NULL;
 	virtio.num_devices = virtio.max_devices = 0;
 	struct dtb_node* dtb;
-	ptr_t addr, len;
+	ptr_t addr, len, lastdma = 0;
 	int i = 0;
 	struct virtio_dev_struct tmp = {0};
 	while(true)	{
@@ -335,7 +345,7 @@ int init_virtio(void)	{
 		dtb_get_as_reg(dtb, 0, &addr, &len);
 		dtb_get_interrupts(dtb, &tmp.irqtype, &tmp.irqno, &tmp.irqflags);
 
-		if(_init_virtio_dev(addr, len, &tmp) == OK)	{
+		if(_init_virtio_dev(addr, len, &tmp, &lastdma) == OK)	{
 			if(virtio.inits[tmp.devtype] != NULL)	{
 				if(virtio.inits[tmp.devtype](&tmp) == OK)	{
 					ASSERT_TRUE(_virtio_inc_array() == OK, "Error");

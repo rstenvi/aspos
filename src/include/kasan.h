@@ -3,7 +3,15 @@
 
 #include "lib.h"
 
+#if defined(UMODE)
+/*
+* Currently not working in user-mode becuse we need to allocate quarantine buffer.
+*/
+#define KASAN_FREE_QUARANTINE 0
+#else
 #define KASAN_FREE_QUARANTINE 1
+#endif
+
 #define KASAN_QUARANTINE_MAX (16)
 
 #define SHADOW_BYTES_PER (8)

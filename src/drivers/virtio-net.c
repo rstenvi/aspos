@@ -164,7 +164,7 @@ static int netdev_check_wakeup(void)	{
 }
 
 static int _net_new_incoming(void* buf, size_t sz)	{
-	struct netdev_job* j = &(status.job);
+//	struct netdev_job* j = &(status.job);
 	int i = status.pkts.lastidx;
 	status.pkts.packet[i].data = buf;
 	status.pkts.packet[i].len = sz;
@@ -181,7 +181,7 @@ static int _net_new_incoming(void* buf, size_t sz)	{
 }
 
 int net_write(struct vfsopen* o, const void* buf, size_t sz)	{
-	int res;
+//	int res;
 	struct virtio_dev_struct* dev = &netdev;
 	ptr_t addr;
 	struct virtio_net_hdr* data;
@@ -224,7 +224,7 @@ static struct fs_struct virtionetdev = {
 	.perm = DRIVER_DEFAULT_PERM,
 };
 
-static void read_mac(struct virtio_dev_struct* dev, char* output)	{
+static void read_mac(struct virtio_dev_struct* dev, unsigned char* output)	{
 	int i;
 	for(i = 0; i < 6; i++)	{
 		DMAR8(dev->base + VIRTIO_OFF_CONFIG + i, output[i]);
@@ -235,7 +235,7 @@ static void read_mac(struct virtio_dev_struct* dev, char* output)	{
 }
 
 int virtio_net_init(struct virtio_dev_struct* dev)	{
-	char mac[6] = {0};
+//	unsigned char mac[6] = {0};
 	int res;
 
 	res = virtio_generic_init(dev, VIRTIO_NET_F_SUPPORTED);
@@ -280,5 +280,6 @@ early_hw_init(virtio_net_register);
 
 int virtio_net_exit(void)    {
     virtq_destroy_alloc(&netdev);
+	return 0;
 }
 poweroff_exit(virtio_net_exit);

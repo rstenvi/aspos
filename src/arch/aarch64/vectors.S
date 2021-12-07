@@ -6,6 +6,26 @@
 .global exception_return
 
 .section .text
+_save_fpregs:
+	stp q0, q1, [sp, #-32]!
+	stp q2, q3, [sp, #-32]!
+	stp q4, q5, [sp, #-32]!
+	stp q6, q7, [sp, #-32]!
+	stp q8, q9, [sp, #-32]!
+	stp q10, q11, [sp, #-32]!
+	stp q12, q13, [sp, #-32]!
+	stp q14, q15, [sp, #-32]!
+	stp q16, q17, [sp, #-32]!
+	stp q18, q19, [sp, #-32]!
+	stp q20, q21, [sp, #-32]!
+	stp q22, q23, [sp, #-32]!
+	stp q24, q25, [sp, #-32]!
+	stp q26, q27, [sp, #-32]!
+	stp q28, q29, [sp, #-32]!
+	stp q30, q31, [sp, #-32]!
+	ret
+
+
 exception_return:
 	/* Restore SP */
 	ldr	x21, [sp, EXC_EXC_SP_OFFSET]
@@ -17,6 +37,23 @@ exception_return:
 	/* Restore elr */
 	ldp	x21, x22, [sp], #16	
 	msr	elr_el1, x22
+
+	ldp q0, q1, [sp], #32
+	ldp q2, q3, [sp], #32
+	ldp q4, q5, [sp], #32
+	ldp q6, q7, [sp], #32
+	ldp q8, q9, [sp], #32
+	ldp q10, q11, [sp], #32
+	ldp q12, q13, [sp], #32
+	ldp q14, q15, [sp], #32
+	ldp q16, q17, [sp], #32
+	ldp q18, q19, [sp], #32
+	ldp q20, q21, [sp], #32
+	ldp q22, q23, [sp], #32
+	ldp q24, q25, [sp], #32
+	ldp q26, q27, [sp], #32
+	ldp q28, q29, [sp], #32
+	ldp q30, q31, [sp], #32
 
 	/* Restore spsr and x0 */
 	ldp	x21, x0, [sp], #16
@@ -41,6 +78,7 @@ exception_return:
 	isb
 	ldp	x29, x30, [sp], #16
 	isb
+
 	eret
 
 .section .vectortable
@@ -66,6 +104,8 @@ exception_return:
 	mrs	x21, spsr_el1
 	stp	x21, x0, [sp, #-16]!
 
+	/* Store all floating point registers */
+	bl _save_fpregs
 	
 	mrs	x21, elr_el1
 	stp	xzr, x21, [sp, #-16]!
@@ -80,6 +120,11 @@ exception_return:
 	mrs	x21, sp_el0
 	str	x21, [sp, EXC_EXC_SP_OFFSET]
 	
+	/*
+	* Data monitors for exclusive memory access is undefined after certain
+	* exceptions. We clear it here to avoid undefined behaviour.
+	*/
+	clrex
 
 	mov x0, sp
 	bl #exception_handler

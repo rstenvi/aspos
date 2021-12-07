@@ -13,16 +13,16 @@
 * For EFI, use 'add x13, x18, #0x16'  as first opcode
 */
 _head:
+	add x13, x18, #0x16
 	b _start
-	nop
 
 	/* 
 	* Load offset and kernel size set to 0 for now
 	* Should set a proper value, but it will now be interpreted as an old Linux
 	* kernel.
 	*/
-	.quad 0x0		// Load offset
-	.quad 0x0		// Kernel size
+	.quad 0x80000		// Load offset
+	.quad 0x0			// Kernel size
 
 	/*
 	* LE | 4K page size | 2MB aligned anywhere
@@ -33,9 +33,39 @@ _head:
 	.quad 0		// reserved
 	.quad 0		// reserved
 	.ascii "ARM\x64"
-	.long _start - _head		// Offset to PE header
+	.long _efiheader - _head		// Offset to PE header
 
+_efiheader:
+	.long 0x00004550	/* PE_MAGIC */
+	.short 0xaa64		/* AArch64 */
+	.short 2			/* Number of sections */
+	.long 0		/* TS */
+	.long 0		/* Ptr symbol tbl */
+	.long 0		/* Number of symbol tbl */
+	.short 0		/* Optional header size */
+	.short 0x0002 | 0x0004 | 0x0200	/* Characteristics */
 
+_section_tbl:
+	.ascii ".text\0\0\0"
+	.long 0		/* VirtualSize */
+	.long 0		/* VirtualAddress */
+	.long 0		/* SizeOfRawData */
+	.long 0		/* PointerToRawData */
+	.long 0		/* PointerToRelocations */
+	.long 0		/* PointerToLineNumbers */
+	.short 0	/* NumberOfRelocations */
+	.short 0	/* NumberOfLineNumbers */
+	.long 0x00000020 | 0x20000000 | 0x40000000		/* Characteristics */
+	.ascii ".data\0\0\0"
+	.long 0		/* VirtualSize */
+	.long 0		/* VirtualAddress */
+	.long 0		/* SizeOfRawData */
+	.long 0		/* PointerToRawData */
+	.long 0		/* PointerToRelocations */
+	.long 0		/* PointerToLineNumbers */
+	.short 0	/* NumberOfRelocations */
+	.short 0	/* NumberOfLineNumbers */
+	.long 0x00000040|0x40000000|0x80000000	/* Characteristics */
 
 _start:
 	/* Store DTB */
@@ -82,14 +112,21 @@ _start:
 	isb
 /*	mrs x0, sctlr_el1 */
 	eor x0, x0, x0
-	orr x0, x0, 1			/* MMU enable */
-	orr x0, x0, #(1 << 2)	/* cache enable */
+	orr x0, x0, 1			    /* MMU enable */
+	orr x0, x0, #(1 << 2)	    /* cache enable */
 	/*orr x0, x0, #(1 << 12)*/	/* Instruction access cacheability */
-	orr x0, x0, #(1 << 23)	/* SPAN */
+	/*orr x0, x0, #(1 << 23)*/	    /* SPAN */
 	msr sctlr_el1, x0
 	isb
 
 	clrex
+/*
+	mov x0, #0x72000000
+	orr x0, x0, #0x2000
+	mov x1, #10
+	mov x2, #5
+	smc #0
+*/
 
 	/*
 	* Call main
@@ -103,7 +140,7 @@ _start:
 	adr x2, kernel_pud
 #endif
 	adr x3, user_pgd
-	ldr x4, =cpu_reset
+	adr x4, cpu_reset
 
 	ldr x8, =kstart
 	blr x8

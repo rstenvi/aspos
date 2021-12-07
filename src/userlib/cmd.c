@@ -32,4 +32,5 @@ int cmd_echo(int argc, char* argv[])	{
 		if(i < argc-1)	write(STDOUT, " ", 1);
 	}
 	write(STDOUT, "\n", 1);
+	return OK;
 }

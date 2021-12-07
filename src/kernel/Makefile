@@ -30,6 +30,7 @@ kasan.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 
 # Lot of noise, but should be fixed
 pmm.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+dtb.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
 endif
 
 all: $(OBJ)

@@ -2,3 +2,6 @@ network
 test
 netcat
 lwip
+executor
+shell
+fuzzer

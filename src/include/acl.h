@@ -66,7 +66,7 @@ typedef uint16_t access_t;
 #define ACL_WORLD_WRITABLE(n)   (ACL_WORLD_VAL(n) & ACL_WRITE)
 #define ACL_WORLD_EXECUTABLE(n) (ACL_WORLD_VAL(n) & ACL_EXEC)
 
-#define ACL_SET_X(v,off) ((v & ACL_MASK) << off)
+#define ACL_SET_X(v,off) (((v) & ACL_MASK) << off)
 
 #define ACL_SET_OWNER(v) ACL_SET_X(v,ACL_OWNER_OFF)
 #define ACL_SET_GROUP(v) ACL_SET_X(v,ACL_GROUP_OFF)

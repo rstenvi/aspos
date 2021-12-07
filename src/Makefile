@@ -17,8 +17,11 @@ all: Image libaspos.a
 Image: aspos.elf
 	$(CROSS_COMPILE)objcopy -O binary aspos.elf Image
 
+Image.efi: aspos.elf
+	$(CROSS_COMPILE)objcopy -O efi-app-AArch64 aspos.elf Image
+
 aspos.elf: deps
-	$(LD) -T arch/$(ARCH)/linker.lds -static $(OBJ) $(LDFLAGS) -o $@ -L$(NEWLIBLOC) -lc
+	$(LD) -T arch/$(ARCH)/linker.lds -Map=System.map -static $(OBJ) $(LDFLAGS) -o $@ -L$(NEWLIBLOC) -lc
 
 libaspos.a: deps
 	$(AR) rs libaspos.a $(ULIB) $(UDRV) $(ULWIP) $(USTAR)

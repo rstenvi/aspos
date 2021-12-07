@@ -3,11 +3,11 @@
 */
 #include "lib.h"
 
-static inline bool bit_set(char c, int num)	{ return ((c & (1<<num)) != 0); }
-static inline void set_bit(char* c, int num) { *c |= (1<<num); }
-static inline void clear_bit(char* c, int num) { *c &= ~(1<<num); }
+static inline bool bit_set(uint8_t c, int num)	{ return ((c & (1<<num)) != 0); }
+static inline void set_bit(uint8_t* c, int num) { *c |= (1<<num); }
+static inline void clear_bit(uint8_t* c, int num) { *c &= ~(1<<num); }
 
-struct bm* bm_create(unsigned long bytes)	{
+struct bm* bm_create(size_t bytes)	{
 	TMALLOC(bm, struct bm);
 	if(PTR_IS_ERR(bm))	return bm;
 	void* b = (void*)kmalloc(bytes);
@@ -24,7 +24,7 @@ void bm_delete(struct bm* bm)	{
 	kfree(bm->bm);
 	kfree(bm);
 }
-int bm_create_fixed(struct bm* bm, ptr_t addr, unsigned long bytes)	{
+int bm_create_fixed(struct bm* bm, ptr_t addr, size_t bytes)	{
 	bm->bytes = bytes;
 	bm->bm = (void*)addr;
 	mutex_clear(&bm->lock);
@@ -35,7 +35,7 @@ int bm_create_fixed(struct bm* bm, ptr_t addr, unsigned long bytes)	{
 
 signed long bm_get_first(struct bm* bm)	{
 	uint8_t* b = (uint8_t*)bm->bm;
-	long i, j, res = -1;
+	size_t i, j, res = -1;
 
 	mutex_acquire(&bm->lock);
 	for(i = 0; i < bm->bytes; i++)	{
@@ -54,18 +54,18 @@ done:
 	return res;
 }
 
-bool bm_index_free(struct bm* bm, int idx)	{
+bool bm_index_free(struct bm* bm, size_t idx)	{
 	uint8_t* b = (uint8_t*)bm->bm;
 	return !(bit_set(b[idx/8], idx % 8));
 }
 
-bool bm_index_taken(struct bm* bm, int idx)	{
+bool bm_index_taken(struct bm* bm, size_t idx)	{
 	return !(bm_index_free(bm, idx));
 }
 
-signed long bm_get_first_num(struct bm* bm, int num)	{
+signed long bm_get_first_num(struct bm* bm, size_t num)	{
 	uint8_t* b = (uint8_t*)bm->bm;
-	int count = 0, i, j;
+	size_t count = 0, i, j;
 	long res = -1;
 
 	mutex_acquire(&bm->lock);
@@ -90,21 +90,21 @@ done:
 	return res;
 }
 
-void bm_clear(struct bm* bm, long idx)	{
+void bm_clear(struct bm* bm, size_t idx)	{
 	uint8_t* b = (uint8_t*)bm->bm;
 	mutex_acquire(&bm->lock);
 	clear_bit(&(b[idx / 8]), idx % 8);
 	mutex_release(&bm->lock);
 }
-void bm_clear_nums(struct bm* bm, long idx, int count)	{
+void bm_clear_nums(struct bm* bm, size_t idx, int count)	{
 	int i;
 	for(i = 0; i < count; i++)	{
 		bm_clear(bm, idx + i);
 	}
 }
 
-void bm_set(struct bm* bm, int from, int to)	{
-	int i;
+void bm_set(struct bm* bm, size_t from, size_t to)	{
+	size_t i;
 	uint8_t* b = (uint8_t*)(bm->bm);
 	mutex_acquire(&bm->lock);
 	for(i = from; i < to; i++)	{

@@ -66,7 +66,7 @@ struct vconsole_meta vmeta = {0};
 static struct virtio_dev_struct consoledev;
 
 static int read_console_config(struct virtio_dev_struct* dev)	{
-	struct virtio_console_config c;
+	struct virtio_console_config c = {0};
 	ptr_t addr = (ptr_t)&c;
 
 
@@ -78,7 +78,7 @@ static int read_console_config(struct virtio_dev_struct* dev)	{
 }
 
 int vconsole_open(struct vfsopen* o, const char* name, int flags, int mode)	{
-	int i = 0, res;
+	int i = 0;
 	struct virtio_dev_struct* dev = &consoledev;
 	struct vconsole* vc;
 	while( (vc = llist_index(vmeta.consoles, i)) != NULL)	{
@@ -101,10 +101,10 @@ int vconsole_open(struct vfsopen* o, const char* name, int flags, int mode)	{
 }
 
 int vconsole_read(struct vfsopen* o, void* buf, size_t sz)	{
-	GET_VFS_DATA(o, struct vconsole, vc);
-	struct virtio_dev_struct* dev = &consoledev;
-	ptr_t addr;
+//	GET_VFS_DATA(o, struct vconsole, vc);
+//	struct virtio_dev_struct* dev = &consoledev;
 
+	PANIC("Not implemented\n");
 	return -BLOCK_THREAD;
 }
 int vconsole_write(struct vfsopen* o, const void* buf, size_t sz)	{

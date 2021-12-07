@@ -28,9 +28,21 @@ int init_cpus(void)	{
 
 		// All CPUs are considered off until they are running a thread
 		c->cpus[i].state = DEFAULT;
+		c->cpus[i].busyloop = NULL;
 		mutex_clear(&(c->cpus[i].readylock));
 	}
 	return 0;
 }
 
 driver_init(init_cpus);
+
+int cpus_exit(void)	{
+	int i;
+	struct cpus* c = &(osdata.cpus);
+	for(i = 0; i < c->numcpus; i++)	{
+		if(c->cpus[i].busyloop)
+			kfree(c->cpus[i].busyloop);
+	}
+	return OK;
+}
+poweroff_exit(cpus_exit);

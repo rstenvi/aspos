@@ -132,7 +132,6 @@ static int _create_job(void* addr, size_t sz, enum JOB_TYPE type)	{
 }
 
 int blk_read(struct vfsopen* o, void* buf, size_t sz)	{
-	int res;
 	struct virtio_blk_req* req;
 	struct virtio_dev_struct* dev = &blkdev;
 	ptr_t devresult;
@@ -160,7 +159,6 @@ int blk_read(struct vfsopen* o, void* buf, size_t sz)	{
 }
 
 int blk_write(struct vfsopen* o, const void* buf, size_t sz)	{
-	int res;
 	struct virtio_blk_req* req;
 	size_t rsz;
 	struct virtio_dev_struct* dev = &blkdev;
@@ -195,9 +193,9 @@ int virtio_blk_irq_cb(int irqno)	{
 	logd("BLK IRQ\n");
 	struct virtio_dev_struct* dev = &blkdev;
 	int res;
-	int idx = dev->virtq->queues[0].idx - 1;
+	//int idx = dev->virtq->queues[0].idx - 1;
 	struct virtq_used* u = virtq_get_used(dev, 0);
-	struct virtq_desc* desc = virtio_get_desc(dev, 0, idx);
+	//struct virtq_desc* desc = virtio_get_desc(dev, 0, idx);
 
 
 	u->idx = 3;
@@ -206,7 +204,7 @@ int virtio_blk_irq_cb(int irqno)	{
 	if(FLAG_SET(res, VIRTIO_INTR_STATUS_RING_UPDATE))	{
 		struct blk_job* j = _get_job();
 		if(!PTR_IS_ERR(j))	{
-			ptr_t* pgd = thread_get_user_pgd(j->thread);
+			ptr_t pgd = thread_get_user_pgd(j->thread);
 
 			uint8_t* dres = (uint8_t*)j->devresult;
 			uint8_t retcode;
@@ -226,7 +224,7 @@ int virtio_blk_irq_cb(int irqno)	{
 			if(j->type != JOB_NONE && (j->left == 0 || retcode != 0))	{
 				int tid = j->thread->id;
 				j->type = JOB_NONE;
-				thread_wakeup(tid, (retcode == 0) ? j->total : -1);
+				thread_wakeup(tid, (retcode == 0) ? j->total : (ptr_t)-1);
 			}
 		}
 	}
@@ -313,6 +311,6 @@ int virtio_blk_register(void)	{
 early_hw_init(virtio_blk_register);
 
 int virtio_blk_exit(void)    {
-    virtq_destroy_alloc(&blkdev);
+    return virtq_destroy_alloc(&blkdev);
 }
 poweroff_exit(virtio_blk_exit);

@@ -11,7 +11,6 @@ MARCH=armv$(ARMV_MAJOR).$(ARMV_MINOR)-$(ARM_PROFILE)
 endif
 
 UPROG = test
-USE_DISK = 1
 
 
 TARGET = aarch64-none-elf
@@ -25,7 +24,7 @@ LD = $(CROSS_COMPILE)ld
 AR = $(CROSS_COMPILE)ar
 STRIP = $(CROSS_COMPILE)strip
 
-SH_FLAGS += -march=$(MARCH)
+SH_FLAGS += -march=$(MARCH)+fp+simd+nosve
 SH_FLAGS += -DARMV_MAJOR=$(ARMV_MAJOR)
 SH_FLAGS += -DARMV_MINOR=$(ARMV_MINOR)
 SH_FLAGS += -DARM_PROFILE=$(ARM_PROFILE)
@@ -37,10 +36,14 @@ SH_FLAGS += -include config.h
 CFLAGS += -I$(CROOT)/src/include -I$(CROOT)/src/arch/$(ARCH)
 CFLAGS += -MMD
 
+# TODO: Should fix the remaining warnings
+CFLAGS += -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Wno-unused-but-set-variable
+
 ifdef DEBUG_BUILD
 CFLAGS += -g
+CFLAGS += -O1
 else
-CFLAGS += -O0
+CFLAGS += -O2
 endif
 
 ifdef CONFIG_UBSAN
@@ -72,9 +75,14 @@ QEMU_FLAGS += -machine virt
 # - cortex-a57
 QEMU_FLAGS += -cpu cortex-a72
 QEMU_FLAGS += -nographic
-QEMU_FLAGS += -smp 2
+
+# https://fadeevab.com/how-to-setup-qemu-output-to-console-and-automate-using-shell-script/
+#QEMU_FLAGS += -serial pipe:/tmp/guest
+QEMU_FLAGS += -smp 1
 # TODO: There are some assumptions on the amount of memory in the code
 QEMU_FLAGS += -m 128M
+
+QEMU_FLAGS += -d unimp,guest_errors
 
 # Variables which should be defined in userconfig.mk
 ifdef USERARGS
@@ -89,7 +97,7 @@ ifeq ($(USE_DISK),1)
 QEMU_FLAGS += -device virtio-blk-device,drive=hd0 -drive file=rootfs.tar,id=hd0,if=none,format=raw
 endif
 
-QEMU_FLAGS += -device vhost-vsock-device,guest-cid=3
+#QEMU_FLAGS += -device vhost-vsock-device,guest-cid=3
 #QEMU_FLAGS += -chardev socket,host=127.0.0.1,port=8181,id=foo -device virtio-serial-device -device virtserialport,chardev=foo,id=test0,nr=1
 
 # RNG device

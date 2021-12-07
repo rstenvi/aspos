@@ -114,6 +114,8 @@ new_thread_prep_args:
 arch_busyloop:
 	eor x0, x0, x0
 	wfi
+/*	mov x8, #14
+	svc #0x0*/
 	b arch_busyloop
 
 
@@ -147,44 +149,45 @@ file: .ascii "aarch64.S"
 	mov x29, sp
 
 #if CONFIG_AARCH64_DEBUG_TTBR0
-	mrs x19, TTBR0_EL1
-	cbnz x19, .pass_\func\()_\dir\()
+	mrs x9, TTBR0_EL1
+	cbnz x9, 1f
 	adr x0, copyerror
 	adr x1, file
 	mov x2, #0
 	bl panic
 
-.pass_\func\()_\dir\():
+1:
 #endif
 
-	mov x19, x0
-	mov x20, x1
-	mov x21, x2
 
 	/*
 	* Check if most significant bit is non-null
 	* If most significant bit is 1, this is kernel addr
 	*/
-	lsr x0, \ureg, #63
-	cbnz x0, .error_\func\()_\dir\()
+	lsr x9, \ureg, #63
+	cbnz x9, 2f
 
 #if CONFIG_AARCH64_PAN
+	mov x9, x0
+	mov x10, x1
+	mov x11, x2
 	bl pan_disable
+	mov x0, x9
+	mov x1, x10
+	mov x2, x11
 #endif
 
-	mov x0, x19
-	mov x1, x20
-	mov x2, x21
 	bl \func
-	mov x19, x0
 
 #if CONFIG_AARCH64_PAN
+	mov x9, x0
 	bl pan_enable
+	mov x0, x9
 #endif
 
 	ldp x29, x30, [sp], #16
-	mov x0, #0
-.error_\func\()_\dir\():
+	mov x0, xzr
+2:
 	ret
 .endm
 

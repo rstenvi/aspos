@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include "lib.h"
 #include "vfs.h"
+#include "arch.h"
 #ifdef CONFIG_KASAN
 #include "kasan.h"
 #endif
@@ -14,8 +15,8 @@
 int seek_read(int fd, void* buf, size_t len, size_t off)	{
 	off_t noff;
 	noff = lseek(fd, off, SEEK_SET);
-	if(noff != off)	{
-		printf("Unable to seek to %lx\n", off);
+	if(noff != (off_t)off)	{
+		printf("Unable to seek to %lx | res: %lx\n", off, noff);
 		return -1;
 	}
 	return read(fd, buf, len);
@@ -55,7 +56,9 @@ void* mmap(void* addr, size_t len, int prot, int flags, int fd)	{
 	void* ret;
 	ret = _mmap(addr, len, prot, flags, fd);
 #ifdef CONFIG_KASAN
-	if(ret)	kasan_mmap(ret, len);
+	if(PTR_IS_VALID(ret) && ADDR_USER(ret))	{
+		kasan_mmap(ret, len);
+	}
 #endif
 	return ret;
 }

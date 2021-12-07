@@ -39,7 +39,6 @@ void xifo_delete(struct XIFO* xifo)	{
 }
 
 static void xifo_move_down(struct XIFO* xifo)	{
-	size_t i;
 	int items = (xifo->last - xifo->first);
 	memmove(&(xifo->items[0]), &(xifo->items[xifo->first]), sizeof(void*) * items);
 	/*
@@ -185,7 +184,7 @@ void* xifo_peep_back(struct XIFO* xifo)	{
 	return _xifo_pop_back(xifo, false);
 }
 
-void* xifo_item(struct XIFO* xifo, int idx)	{
+void* xifo_item(struct XIFO* xifo, size_t idx)	{
 	ASSERT(PTR_IS_VALID(xifo));
 	void* ret = NULL;
 	mutex_acquire(&xifo->lock);
@@ -201,7 +200,7 @@ err:
 void* xifo_search(struct XIFO* xifo, void* val, bool (*search)(void*,void*)) {
 	ASSERT(PTR_IS_VALID(xifo));
 	void* ret = NULL;
-	int i;
+	size_t i;
 	mutex_acquire(&xifo->lock);
 	for(i = xifo->first; i < xifo->last; i++)	{
 		if(search(val, xifo->items[i]))	{

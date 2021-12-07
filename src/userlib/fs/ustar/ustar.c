@@ -15,7 +15,7 @@ static struct tar_meta* ustar_meta = NULL;
 */
 struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exact)	{
 	struct tar_entry* n = entry, *n2;
-	int len, count, i;
+	size_t len, count, i;
 	char* fname = (char*)*_name, *div;
 	bool found;
 	while((div = strstr(fname, "/")) != NULL)	{
@@ -32,7 +32,7 @@ struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exac
 				}
 			}
 			if(!found)	{
-				printf("Unable to find entry for '%s' (%i)\n", fname, len);
+				printf("Unable to find entry for '%s' (%li)\n", fname, len);
 				return NULL;
 			}
 			n = n2;
@@ -51,7 +51,7 @@ struct tar_entry* _search_entry(struct tar_entry* entry, char** _name, bool exac
 			}
 		}
 		if(!found)	{
-			printf("Unable to find entry for '%s' (%i)\n", fname, len);
+			printf("Unable to find entry for '%s' (%li)\n", fname, len);
 			return NULL;
 		}
 		n = n2;
@@ -105,10 +105,10 @@ static struct tar_entry* alloc_tar_entry(struct raw_tar_entry* entry)	{
 	return ret;
 }
 static int add_tar_entry(struct tar_meta* meta, struct raw_tar_entry* entry, size_t seek)	{
-	char* div, *fname = entry->filename;
+	char* fname = entry->filename;
 	char** _fname = &fname;
 	struct tar_entry* n = meta->root, * n2;
-	int len, i;
+	size_t i;
 
 	// This can happen if we read past normal buffer into padding
 	if(strlen(fname) == 0)	return -1;
@@ -172,9 +172,9 @@ static int parse_all(struct tar_meta* m)	{
 }
 
 struct tar_meta* find_meta(char** _name)	{
-	struct tar_meta* n = ustar_meta, *bmatch;
+	struct tar_meta* n = ustar_meta, *bmatch = NULL;
 	char* name = *_name;
-	int len = strlen(name), minsz, bmatchlen = -1;
+	size_t len = strlen(name), minsz, bmatchlen = 0;
 	while(n != NULL)	{
 		minsz = MIN(strlen(n->mntpoint), len);
 		if(minsz > bmatchlen && strncmp(n->mntpoint, name, minsz) == 0)	{
@@ -242,7 +242,7 @@ static int _ustar_read_file(struct tar_file_open* f, void* buf, size_t max)	{
 
 static int _ustar_read_dir(struct tar_file_open* f, void* buf, size_t max)	{
 	struct dir_entry dir = {0};
-	int seek, res, r, i;
+	int i;
 	struct tar_entry* e = f->entry, * n;
 	void* nbuf = buf;
 	int count;
@@ -268,7 +268,7 @@ static int _ustar_read_dir(struct tar_file_open* f, void* buf, size_t max)	{
 }
 
 static int ustar_read(struct vfsopen* o, void* buf, size_t max)	{
-	size_t seek, r, res;
+	size_t res;
 	GET_VFS_DATA(o, struct tar_file_open, f);
 	if(PTR_IS_ERR(f))	return -1;
 

@@ -15,7 +15,7 @@ static struct cmdargs cmdargs;
 
 
 char* cmdarg_value(const char* key)	{
-	int i;
+	size_t i;
 	for(i = 0; i < cmdargs.size; i++)	{
 		if(strcmp(key, cmdargs.args[i].key) == 0)	{
 			return cmdargs.args[i].val;
@@ -24,7 +24,7 @@ char* cmdarg_value(const char* key)	{
 	return NULL;
 }
 
-static int _set_arg(int idx, char* key, char* val)	{
+static int _set_arg(size_t idx, char* key, char* val)	{
 	ASSERT_TRUE(idx < cmdargs.size, "Kernel error");
 	cmdargs.args[idx].key = key;
 	cmdargs.args[idx].val = val;
@@ -33,7 +33,7 @@ static int _set_arg(int idx, char* key, char* val)	{
 
 static int _set_args(const char* t, char c)	{
 	char* curr = (char*)t, * prev = (char*)t, * sep;
-	int idx = 0;
+	size_t idx = 0;
 	curr = strchr(t, c);
 
 	while(curr != NULL)	{

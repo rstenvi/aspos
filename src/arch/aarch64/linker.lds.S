@@ -18,7 +18,7 @@ SECTIONS {
 #endif
 		kernel_pud = .; . += ARM64_PAGE_SIZE;
 		kernel_pmd = .; . += ARM64_PAGE_SIZE;
-		kernel_ptd = .; . += ARM64_PAGE_SIZE;
+/*		kernel_ptd = .; . += ARM64_PAGE_SIZE; */
 		KSTACK_INIT_LOW = .; . += ARM64_PAGE_SIZE; KSTACK_INIT_HIGH = .;
 	}
 	
@@ -32,13 +32,26 @@ SECTIONS {
 	.text : AT (ADDR (.text) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_TEXT_START = .;
 		. = ALIGN(ALIGN_VECTORTABLE); *(.vectortable)
-		*(.text)
+		*(.text*)
 		KERNEL_TEXT_STOP = .;
 		. = ALIGN(ARM64_PAGE_SIZE);
 	}
 	.data : AT (ADDR (.data) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_DATA_START = .;
 
+
+		*(.data*)
+
+		KERNEL_DATA_STOP = .;
+	}
+
+	. = ALIGN(ALIGN_DIFF_SECTION);
+
+	.rodata : AT(ADDR (.rodata) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
+		KERNEL_RODATA_START = .;
+		*(.rodata*)
+
+		. = ALIGN(ALIGN_SAME_SECTION);
 		DRVFUNC_START = .;
 		*(.kernel.data.drvfunc)
 		DRVFUNC_STOP = .;
@@ -68,25 +81,19 @@ SECTIONS {
 		*(.data.altinstr)
 		ALTINSTR_STOP = .;
 
-		*(.data)
 
-		KERNEL_DATA_STOP = .;
+		. = ALIGN(ALIGN_SAME_SECTION);
+		KERNEL_RODATA_STOP = .;
 	}
+
+	. = ALIGN(ALIGN_DIFF_SECTION);
+
 	.bss : AT (ADDR (.bss) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
 		KERNEL_BSS_START = .;
-		*(.bss)
+		*(.bss*)
 		KERNEL_BSS_STOP = .;
 
 	}
-	
-	. = ALIGN(ALIGN_DIFF_SECTION);
-	.rodata : AT(ADDR (.rodata) - ARM64_VA_KERNEL_FIRST_ADDR) ALIGN(ARM64_PAGE_SIZE) {
-		KERNEL_RODATA_START = .;
-		*(.rodata)
-		KERNEL_RODATA_STOP = .;
-	}
-	. = ALIGN(ALIGN_DIFF_SECTION);
-
 	KERNEL_END = .;
 	IMAGE_END = .;
 }

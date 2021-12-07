@@ -15,8 +15,8 @@ struct pl061_struct {
 
 static struct pl061_struct pl061;
 
-static int _as_input()	{ DMAW8(pl061.base + GPIODIR, 0x00); }
-static int _as_output()	{ DMAW8(pl061.base + GPIODIR, 0xff); }
+// static void _as_input()   { DMAW8(pl061.base + GPIODIR, 0x00); }
+// static void _as_output()  { DMAW8(pl061.base + GPIODIR, 0xff); }
 
 int init_pl061(void)	{
 	logd("Init pl061\n");
@@ -28,14 +28,10 @@ int init_pl061(void)	{
 
 	// Get memory region and map it in as DMA
 	dtb_get_as_reg(dtb, 0, &pl061.base, &pl061.length);
-	mmu_map_dma(pl061.base, pl061.base + pl061.length);
+	pl061.base = mmu_map_dma(pl061.base, pl061.base + pl061.length);
 
-	pl061.base += cpu_linear_offset();
-
-//	_as_input();
-
-//	DMAW8(pl061.base, 0x74);
-//	while(1);
+// 	_as_input();
+// 	DMAW8(pl061.base, 0x74);
 	return 0;
 }
 

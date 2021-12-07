@@ -7,6 +7,7 @@
 #include "memory.h"
 
 #ifndef UMODE
+#include "log.h"
 #include "kernel.h"
 #endif
 /**
@@ -31,8 +32,14 @@ int mutex_acquire(mutex_t* lock)	{
 	* other types only part of the value may be set."
 	*/
 	while(__atomic_test_and_set(lock, __ATOMIC_SEQ_CST) == true)	{
+#ifdef UMODE
+		yield();
+#endif
 	}
+#ifndef UMODE
 	asm("dsb sy");
+	asm("dmb sy");
+#endif
 	return OK;
 }
 
@@ -49,6 +56,7 @@ int mutex_try_acquire(mutex_t* lock)	{
 	if(__atomic_test_and_set(lock, __ATOMIC_SEQ_CST) == true)
 		return -(GENERAL_FAULT);
 
+	asm("dmb sy");
 	return OK;
 }
 
@@ -61,8 +69,16 @@ int mutex_try_acquire(mutex_t* lock)	{
 *	:c:type:`OK`
 */
 int mutex_release(mutex_t* lock)	{
+#ifndef UMODE
+	if(*lock == 0)	{
+		logw("Called release on non-held lock: %p\n", __builtin_return_address(0));
+	}
+#endif
 	asm("dsb sy");
+	asm("dmb sy");
 	__atomic_clear(lock, __ATOMIC_SEQ_CST);
+	asm("dmb sy");
+	asm("dsb sy");
 	return OK;
 }
 
@@ -75,6 +91,10 @@ int mutex_release(mutex_t* lock)	{
 */
 int mutex_clear(mutex_t* lock)	{
 	asm("dsb sy");
+	asm("dmb sy");
 	__atomic_clear(lock, __ATOMIC_SEQ_CST);
 	return OK;
+}
+bool mutex_held(mutex_t lock) {
+	return (lock != 0);
 }

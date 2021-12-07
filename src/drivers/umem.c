@@ -16,7 +16,7 @@ static int _umem_rw(struct vfsopen* o, void* buf, size_t len, bool read)	{
 
 	ptr_t oa;
 	size_t rem = len;
-	ptr_t* pgd = (ptr_t*)cpu_get_user_pgd();
+	ptr_t pgd = cpu_get_user_pgd();
 	
 	while(rem > 0)	{
 		ptr_t tmp = GET_ALIGNED_DOWN_POW2((ptr_t)addr, PAGE_SIZE);
@@ -60,7 +60,7 @@ static struct fs_struct umemfs = {
 };
 
 int init_umem(void)	{
-	device_register(&umemfs);
+	return device_register(&umemfs);
 }
 driver_init(init_umem);
 

@@ -24,7 +24,7 @@ int init_dev_null(bool detach)	{
 	fcntl(fd, CUSE_SET_FS_OPS, (ptr_t)(&dev_null_fs));
 
 	// open and write is valid, but we don't do anything
-	fcntl(fd, CUSE_SET_FUNC_EMPTY, VFS_FUNC_OPEN | VFS_FUNC_WRITE);
+	fcntl(fd, CUSE_SET_FUNC_EMPTY, VFS_FUNC_OPEN | VFS_FUNC_WRITE | VFS_FUNC_CLOSE);
 
 	// After register, driver is effective
 	fcntl(fd, CUSE_REGISTER);
@@ -40,4 +40,4 @@ int init_dev_null(bool detach)	{
 	return fd;
 }
 
-int close_dev_null(int fd) { close(fd); }
+int close_dev_null(int fd) { return close(fd); }

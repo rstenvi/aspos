@@ -27,11 +27,11 @@ struct dtb_header {
 	uint32_t size_dt_struct;
 };
 
-uint32_t dtb_translate_ref(void* ref)	{
+uint32_t dtb_translate_ref(ptr_t ref)	{
 	return be_u32_to_cpu(ref);
 }
 
-int dtb_get_reg(void* reg, uint32_t cellssz, uint32_t cellsaddr, uint64_t* outaddr, uint64_t* outlen)	{
+int dtb_get_reg(ptr_t reg, uint32_t cellssz, uint32_t cellsaddr, uint64_t* outaddr, uint64_t* outlen)	{
 	uint64_t addr = 0, length = 0;
 	ASSERT_TRUE(cellssz == 2 && cellsaddr == 2, "Unsupported sizes");
 
@@ -50,15 +50,15 @@ int dtb_get_reg(void* reg, uint32_t cellssz, uint32_t cellsaddr, uint64_t* outad
 	return 0;
 }
 
-void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr)	{
-	void* dtb = cpu_get_dtb();
+ptr_t dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, int* cells_addr)	{
+	ptr_t dtb = cpu_get_dtb();
 	struct dtb_header* header = (struct dtb_header*)dtb;
 	uint32_t offset, lastoff, tmp;
-	void* current;
+	ptr_t current;
 	char* nodename;
 	char* strings = NULL;
 	bool correctnode = false;
-	void* ret = NULL;
+	ptr_t ret = 0;
 	int nlen = strlen(node);
 
 	// Sanity check to ensure we have correct pointer
@@ -94,7 +94,7 @@ void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, i
 		}
 
 		// We have started a new node
-		nodename = (char*)((ptr_t)current + 4);
+		nodename = (char*)(current + 4);
 
 		tmp = strlen(nodename) + 1;
 		ALIGN_UP_POW2(tmp, 4)
@@ -154,8 +154,8 @@ void* dtb_get_ref(const char* node, const char* prop, int skip, int* cells_sz, i
 // This code is after the init phase
 
 
-int dtb_num_props(void* start)	{
-	uint32_t tmp, offset = 0, propsz;
+int dtb_num_props(ptr_t start)	{
+	uint32_t offset = 0, propsz;
 	int count = 0;
 
 	while(be_u32_to_cpu(start + offset) == OF_DT_PROP)	{
@@ -167,8 +167,8 @@ int dtb_num_props(void* start)	{
 	return count;
 }
 
-struct dtb_node* dtb_parse_node(void* start, char* strings, uint32_t* foffset)	{
-	uint32_t tmp, offset, propsz, propoff;
+struct dtb_node* dtb_parse_node(ptr_t start, char* strings, uint32_t* foffset)	{
+	uint32_t offset, propsz, propoff;
 	int pcount = 0;
 	TMALLOC(ret, struct dtb_node);
 	if(PTR_IS_ERR(ret))	return ret;
@@ -205,10 +205,10 @@ struct dtb_node* dtb_parse_node(void* start, char* strings, uint32_t* foffset)	{
 	return ret;
 }
 
-struct dtb_node* dtb_parse_data(void* dtb)	{
+struct dtb_node* dtb_parse_data(ptr_t dtb)	{
 	struct dtb_header* header = (struct dtb_header*)dtb;
 	uint32_t offset, lastoff, tmp;
-	char* nodename, * strings = NULL;
+	char* strings = NULL;
 	struct dtb_node* curr = NULL;
 
 	offset = be_u32bits_to_cpu(header->off_dt_struct);
@@ -235,7 +235,7 @@ struct dtb_node* dtb_parse_data(void* dtb)	{
 			while(1);
 		}
 
-		struct dtb_node* n = (void*)dtb_parse_node(dtb + offset + 4, strings, &tmp);
+		struct dtb_node* n = (struct dtb_node*)dtb_parse_node(dtb + offset + 4, strings, &tmp);
 		n->numchilds = n->maxchilds = 0;
 		n->childs = NULL;
 		n->parent = curr;
@@ -252,7 +252,7 @@ struct dtb_node* dtb_parse_data(void* dtb)	{
 	return curr;
 }
 
-uint64_t _dtb_parse_cell(void* data, uint32_t num)	{
+uint64_t _dtb_parse_cell(ptr_t data, uint32_t num)	{
 	uint64_t ret = 0;
 	ret = be_u32_to_cpu(data);
 	if(num > 1)	{
@@ -262,7 +262,7 @@ uint64_t _dtb_parse_cell(void* data, uint32_t num)	{
 	return ret;
 }
 
-int _dtb_parse_reg(void* data, uint32_t acells, uint32_t scells, struct dtbreg* reg)	{
+int _dtb_parse_reg(ptr_t data, uint32_t acells, uint32_t scells, struct dtbreg* reg)	{
 	reg->addr = _dtb_parse_cell(data, acells);
 	reg->len = _dtb_parse_cell(data + (4 * acells), scells);
 	return 0;
@@ -271,7 +271,6 @@ int _dtb_parse_reg(void* data, uint32_t acells, uint32_t scells, struct dtbreg* 
 void _dtb_second_pass(struct dtb_node* n, uint32_t scells, uint32_t acells)	{
 	int i;
 	struct dtb_property* c;
-	struct dtb_property tmp;
 
 	// TODO: Should reorder so that '#' entries always are at the beginning
 
@@ -531,10 +530,10 @@ void dtb_dump_compatible(struct dtb_node* n)	{
 }
 
 int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen)    {
-    uint32_t cells_sz, cells_addr;
+    int cells_sz, cells_addr;
 
-    void* reg = dtb_get_ref("memory", "reg", 0, &cells_sz, &cells_addr);
-    ASSERT_TRUE(reg != NULL, "Unable to get memory from dtb");
+    ptr_t reg = dtb_get_ref("memory", "reg", 0, &cells_sz, &cells_addr);
+    ASSERT_TRUE(reg != 0, "Unable to get memory from dtb");
 
     ASSERT_TRUE(cells_sz == 2 && cells_addr == 2, "Unsupported sizes");
 

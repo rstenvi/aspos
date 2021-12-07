@@ -42,7 +42,7 @@ struct virtiorng_data {
 static struct virtio_dev_struct rngdev = {0};
 
 static struct virtiorng_data* alloc_data_obj(void)	{
-	TMALLOC(ret, struct virtiorng_data);
+	TZALLOC(ret, struct virtiorng_data);
 	ASSERT_VALID_PTR(ret);
 
 	ret->jobs = xifo_alloc(2, 2);
@@ -95,8 +95,8 @@ int write_to_user(struct virtq_desc* desc, struct virtq_used_elem* elem, struct 
 }
 
 int rng_read(struct vfsopen* o, void* buf, size_t sz)	{
-	int res, cbytes, nsize = sz, rlen;
-	ASSERT_TRUE(sz <= PAGE_SIZE, "Not supported yet");
+	int nsize = MIN(sz, PAGE_SIZE), rlen;
+// 	ASSERT_TRUE(sz <= PAGE_SIZE, "Not supported yet");
 	struct rng_read* job;
 	struct virtio_dev_struct* dev = &rngdev;
 	struct virtiorng_data* data = (struct virtiorng_data*)dev->state;
@@ -121,7 +121,7 @@ int rng_read(struct vfsopen* o, void* buf, size_t sz)	{
 }
 
 int virtio_rng_irq_cb(int irqno)	{
-	logd("IRQ rng\n");
+	//logd("IRQ rng\n");
 	struct virtio_dev_struct* dev = &rngdev;
 	struct virtq_used* u = virtq_get_used(dev, 0);
 	int idx = dev->virtq->queues[0].idx - 1;
@@ -217,5 +217,6 @@ int virtio_rng_exit(void)    {
 		destroy_data_obj(rngdev.state);
 	}
     virtq_destroy_alloc(&rngdev);
+	return OK;
 }
 poweroff_exit(virtio_rng_exit);

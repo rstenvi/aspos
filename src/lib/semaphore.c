@@ -3,6 +3,7 @@
 int sem_init(struct semaphore* sem, int count)	{
 	sem->sem = count;
 	mutex_clear(&(sem->lock));
+	return OK;
 }
 
 struct semaphore* sem_new(int count)	{
@@ -40,4 +41,5 @@ int sem_wait(struct semaphore* sem)	{
 
 int sem_free(struct semaphore* sem)	{
 	kfree(sem);
+	return OK;
 }

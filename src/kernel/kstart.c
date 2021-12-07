@@ -5,6 +5,7 @@ uint32_t last_driver_uid = USERID_LAST;
 #endif
 __attribute__((__section__(".bss"))) struct os_data osdata;
 
+int logready = 0;
 extern ptr_t KERNEL_START;
 extern ptr_t KERNEL_END;
 extern ptr_t USER_START;
@@ -22,22 +23,18 @@ extern ptr_t CPUCORE_START;
 extern ptr_t CPUCORE_STOP;
 
 static void percpu_start(void);
-static void init_after_linear_region(void);
 static void kstart_stage2(void);
 static void init_sbrk(void);
 static void init_drivers(void);
-static int init_memory(ptr_t kimage);
 void secondary_cpu_start(void);
-//static int get_memory_dtb(ptr_t* outaddr, ptr_t* outlen);
-
-//ptr_t secondary_cpu_reset = 0;
 
 #if defined(CONFIG_EARLY_UART)
 int early_printf(const char* fmt, ...)	{
-	uart_early_write(fmt);
+	return uart_early_write(fmt);
 }
 #endif
 
+uint64_t smc();
 
 /**
 * Main C entry point after the initial assembly code has executed.
@@ -51,21 +48,26 @@ int early_printf(const char* fmt, ...)	{
 *	upgd: Address to user page directory
 *	seccpu: Not sure if we need this
 */
-__noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t seccpu)	{
+__noreturn void kstart(ptr_t kimage, ptr_t dtb, ptr_t kpgd, ptr_t upgd, ptr_t seccpu)	{
 
 	struct os_data* osd = &(osdata);
 	// Temporary location for DTB
 	// We still use physical address, but it's been identity mapped
-	osd->dtb = dtb;
 	osd->kernel_start = (ptr_t)&(KERNEL_START);
 	osd->kernel_end = (ptr_t)&(KERNEL_END);
-	osd->linear_offset = 0;
+	//osd->linear_offset = 0;
 	osd->cpu_reset_func = seccpu;
+
+	osdata.linear_offset = ARM64_VA_LINEAR_START;
+
+	osd->dtb = dtb + osdata.linear_offset;
+	osdata.kpgd = kpgd + osdata.linear_offset;
+	osdata.upgd = upgd + osdata.linear_offset;
 
 	mutex_clear(cpu_loglock()); 
 
-	uart_early_init();
 #if defined(CONFIG_EARLY_UART)
+	uart_early_init();
 	// We can't use printf until after we have set up dynamic memory and brk
 	osd->kgetc = uart_early_getc;
 	osd->kputs = uart_early_write;
@@ -74,14 +76,33 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 #endif
 
 	// Initially we use identity map
-	osd->kpgd = kpgd;
-	osd->upgd = upgd;
+	//osd->kpgd = kpgd;
+	//osd->upgd = upgd;
 
-	init_memory(kimage);
+	ptr_t addr, length;
+	if(get_memory_dtb(&addr, &length) != OK)	PANIC("Unable to get memory from dtb\n");
+
+	osdata.pmm.start = addr;
+	osdata.pmm.end = addr + length;
+
+	pmm_init();
+	pmm_mark_mem(kimage, osdata.kernel_end - ARM64_VA_KERNEL_FIRST_ADDR);
+
+	// TODO: Should parse FDT to get true size
+	pmm_mark_mem(dtb, (ptr_t)dtb + MB);
+
+	//init_memory(kimage);
 
 	init_vmmap();
 	ptr_t stack = vmmap_alloc_pages(CONFIG_EXCEPTION_STACK_BLOCKS, PROT_RW, VMMAP_FLAG_NONE);
 	stack += (PAGE_SIZE * CONFIG_EXCEPTION_STACK_BLOCKS);
+
+	//const char* smsg = "Hello from normal world";
+	//ASSERT_TRUE(smc((0x72 << 24) | 0x2000, 10, 20) == 30, "smc returned unknown value");
+	
+	//ASSERT_TRUE(smc(SMCC_FAST32(OPTEE_ID, 0), mmu_va_to_pa((ptr_t)smsg)) == 0, "smc returned wrong value");
+	
+//	smc(SMCC_FAST32(42, 0), 0, 0);
 
 	/*
 	* todo: This is only a fix for gdb-scripts.
@@ -104,11 +125,7 @@ __noreturn void kstart(ptr_t kimage, void* dtb, ptr_t kpgd, ptr_t upgd, ptr_t se
 __noreturn static void kstart_stage2(void) {
 	struct os_data* osd = &(osdata);
 
-	init_after_linear_region();
-
 	init_sbrk();
-
-	mmu_second_init();
 
 #if defined(CONFIG_KASAN)
 	kasan_init();
@@ -117,22 +134,43 @@ __noreturn static void kstart_stage2(void) {
 	kasan_mark_valid(ARM64_VA_KERNEL_STACK_START, ARM64_VA_KERNEL_STACK_SIZE);
 #endif
 
+/*
 #if defined(CONFIG_EARLY_UART)
 	osd->printk = printf;
 #endif
+*/
 
 	// This should be the first message printed
+#if defined(CONFIG_EARLY_UART)
 	logi("Reached stage 2 with memory set up\n");
-
 	logi("Taking second pass at DTB\n");
+#endif
 	struct dtb_node* root = dtb_parse_data(osd->dtb);
 	dtb_second_pass(root);
 	osd->dtbroot = root;
 
 	// All code from here on can use a nicer interface to retrieve DTB data
 
+#if defined(CONFIG_EARLY_UART)
 	logi("Initializing drivers\n");
+#endif
+
 	init_drivers();
+
+
+	// UART should now be defined
+	logready = 1;
+
+	logi("VA Memory regions set up\n");
+	logi("First: %lx\n", ARM64_VA_KERNEL_FIRST_ADDR);
+	logi("Linear: %lx -> %lx\n", ARM64_VA_LINEAR_START, ARM64_VA_LINEAR_STOP);
+#if defined(CONFIG_KASAN)
+	logi("KASAN: %lx -> %lx\n", ARM64_VA_SHADOW_START, ARM64_VA_SHADOW_STOP);
+#endif
+	logi("Vmmap: %lx -> %lx\n", ARM64_VA_KERNEL_VMMAP_START, ARM64_VA_KERNEL_VMMAP_STOP);
+	logi("Stack: %lx -> %lx\n", ARM64_VA_KERNEL_STACK_START, ARM64_VA_KERNEL_STACK_STOP);
+	logi("DMA: %lx\n", ARM64_VA_KERNEL_DMA_START);
+
 
 	logi("Initializing threads\n");
 	init_threads();
@@ -170,9 +208,11 @@ __noreturn static void kstart_stage2(void) {
 	}
 
 	// Init user memory and remove identity map
-	logi("Initializing user memory\n");
-	mmu_init_user_memory((ptr_t*)osdata.upgd);
+	logi("Removing user memory\n");
+	//mmu_unmap_user_pgd((ptr_t*)osdata.upgd);
+//	mmu_init_user_memory((ptr_t*)osdata.upgd);
 
+	logi("Creating user-code\n");
 	thread_new_main();
 
 	logi("Trigger per-CPU code\n");
@@ -200,7 +240,15 @@ static void percpu_start(void)	{
 	enable_irq();
 
 	logi("Starting thread scheduler\n");
-	thread_schedule_next(0);
+	if(cpu_id() == 0)
+		thread_schedule_next(0, false);
+
+	while(thread_has_busyloop() == false)	{
+	}
+
+	thread_schedule_next(0, false);
+	loge("Unable to schedule on CPU\n");
+	while(1);
 }
 
 void secondary_cpu_start(void)	{
@@ -231,36 +279,14 @@ static void init_drivers(void)	{
 void call_inits(ptr_t start, ptr_t stop)	{
 	ptr_t curr;
 	deviceinit_t func;
-	int ret;
 	for(curr = start; curr < stop; curr += sizeof(ptr_t))	{
 		func = (deviceinit_t)(*((ptr_t*)(curr)));
-		logd("Calling driver @ %lx\n", func);
-		ret = func();
-		logi("Driver @ %lx returned %i\n", func, ret);
+		//logd("Calling driver @ %lx\n", func);
+
+		// TODO: Should do some error checking here
+		func();
+		//logi("Driver @ %lx returned %i\n", func, ret);
 	}
-}
-
-static int init_memory(ptr_t kimage)	{
-	ptr_t addr, length;
-	if(get_memory_dtb(&addr, &length) != OK)	PANIC("Unable to get memory from dtb\n");
-
-	osdata.pmm.start = addr;
-	osdata.pmm.end = addr + length;
-
-	pmm_init();
-	pmm_mark_mem(kimage, osdata.kernel_end - ARM64_VA_KERNEL_FIRST_ADDR);
-	pmm_mark_mem((ptr_t)(osdata.dtb), ((ptr_t)osdata.dtb + MB) );
-
-	//mmu_create_linear(0, osdata.pmm.end);
-	mmu_create_linear(osdata.pmm.start, osdata.pmm.end);
-
-	osdata.linear_offset = ARM64_VA_LINEAR_START;
-	osdata.kpgd += osdata.linear_offset;
-	osdata.upgd += osdata.linear_offset;
-
-	// Should use linear offset for DTB from now on
-	osdata.dtb = (void*)((ptr_t)osdata.dtb + ARM64_VA_LINEAR_START);
-	return OK;
 }
 
 static void init_sbrk(void)	{
@@ -277,32 +303,19 @@ static void init_sbrk(void)	{
 	mutex_clear(&brk->lock);
 }
 
-static void init_after_linear_region(void)	{
-	ptr_t start = (ptr_t)(&HMEMFUNC_START);
-	ptr_t stop = (ptr_t)(&HMEMFUNC_STOP);
-	ptr_t curr;
-	ptr_t lin = cpu_linear_offset();
-	int ret;
-
-	highmeminit_t func;
-	for(curr = start; curr < stop; curr += sizeof(ptr_t))	{
-		func = (highmeminit_t)(*((ptr_t*)(curr)));
-		ret = func(lin);
-	}
-}
-
 #if defined(CONFIG_SIMPLE_LOG_FORMAT)
 void klog(char* fmt, ...)	{
 #else
 void klog(const char* lvl, const char* file, const char* func, char* fmt, ...)	{
 #endif
+	if(logready == 0)	return;
 	va_list argptr;
 	va_start(argptr, fmt);
-//	mutex_acquire(cpu_loglock());
+	mutex_acquire(cpu_loglock());
 #if !defined(CONFIG_SIMPLE_LOG_FORMAT)
 	printf("%s|%s|%s|", lvl, file, func);
 #endif
 	vprintf(fmt, argptr);
 	va_end(argptr);
-//	mutex_release(cpu_loglock());
+	mutex_release(cpu_loglock());
 }

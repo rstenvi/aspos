@@ -47,7 +47,7 @@ static int _vec_remove_idx(struct Vec* vec, int idx)	{
 }
 
 void* _vec_find(struct Vec* vec, long key, bool remove)	{
-	struct vec_item* item = NULL;
+	//struct vec_item* item = NULL;
 	int idx;
 	void* ret = NULL;
 
@@ -74,6 +74,8 @@ int vec_insert(struct Vec* vec, void* ins, long key)	{
 	_vec_insert_idx(vec, idx, &item);
 
 	mutex_release(&vec->lock);
+
+	return OK;
 }
 void* vec_find(struct Vec* vec, long key)	{
 	return _vec_find(vec, key, false);

@@ -46,6 +46,7 @@ struct tlist* tlist_new(void)	{
 	return n;
 }
 void tlist_delete(struct tlist* tl)	{
+	mutex_acquire(&tl->lock);
 	struct tlist_item* i = tl->first, *p;
 	while(i != NULL)	{
 		p = i;
@@ -71,15 +72,17 @@ void tlist_delete(struct tlist* tl)	{
 */
 void* tlist_downtick(struct tlist* t)	{
 	void* ret = NULL;
+	struct tlist_item* i;
 	mutex_acquire(&t->lock);
-	if(t->first != NULL)	{
-		t->first->ticks--;
-		if(t->first->ticks <= 0)	{
-			struct tlist_item* tt = t->first;
-			ret = tt->data;
-			t->first = tt->next;
+	i = t->first;
+	if(i != NULL)	{
+		i->ticks--;
+		if(i->ticks <= 0)	{
+			//struct tlist_item* tt = i;
+			t->first = i->next;
+			ret = i->data;
 			t->count--;
-			kfree(tt);
+			kfree(i);
 		}
 	}
 	mutex_release(&t->lock);
@@ -112,6 +115,35 @@ void* tlist_more_zero(struct tlist* t)	{
 }
 
 /**
+* Removes all items from list matching the pointer given.
+*/
+int tlist_remove(struct tlist* t, void* remove)	{
+	//int tickadd = 0;
+	mutex_acquire(&t->lock);
+	struct tlist_item* item = t->first, *prev = NULL;
+	while(item != NULL)	{
+		if(item->data == remove)	{
+			//struct tlist_item* f = item;
+			if(item->next != NULL)	{
+				// Update ticks on next if it exists
+				item->next->ticks += item->ticks;
+			}
+
+			// Update pointers
+			if(prev == NULL)	WRITE_ONCE(t->first, item->next);
+			else				WRITE_ONCE(prev->next, item->next);
+
+			kfree(item);
+			break;
+		}
+		prev = item;
+		item = item->next;
+	}
+	mutex_release(&t->lock);
+	return 0;
+}
+
+/**
 * Add new item in the list.
 *
 * Parameters:
@@ -123,7 +155,7 @@ void* tlist_more_zero(struct tlist* t)	{
 * 	  :c:type:`OK` on success and :c:type:`MEMALLOC` on failure.
 */
 int tlist_add(struct tlist* t, void* data, int64_t ticks)	{
-	TMALLOC(n, struct tlist_item);
+	TZALLOC(n, struct tlist_item);
 	if(PTR_IS_ERR(n))	return -(MEMALLOC);
 	
 	mutex_acquire(&t->lock);
@@ -144,20 +176,28 @@ int tlist_add(struct tlist* t, void* data, int64_t ticks)	{
 			p = i;
 			i = i->next;
 		}
+		ASSERT(ticks >= 0);
 
-		n->next = i;
+		WRITE_ONCE(n->next, i);
 		n->ticks = ticks;
 		// Place at beginning
-		if(p == NULL)	t->first = n;
-		else			p->next = n;
+		if(p == NULL)	WRITE_ONCE(t->first, n);
+		else			WRITE_ONCE(p->next, n);
 
-		// Now we need to decrement ticks on everthing that comes after what
-		// we've just inserted
-		i = n->next;
-		while( i != NULL)	{
+		// Subtract ticks on the next entry
+		if(i != NULL)	{
 			i->ticks -= ticks;
-			i = i->next;
+			ASSERT_TRUE(i->ticks >= 0, "Tick count is negative\n");
 		}
+		// Now we need to decrement ticks on everything that comes after what
+		// we've just inserted
+		//i = n->next;
+		/*
+		while(i != NULL)	{
+			i->ticks -= ticks;
+			ASSERT(i->ticks >= 0, "Tick count is negative\n");
+			i = i->next;
+		}*/
 	}
 
 	mutex_release(&t->lock);

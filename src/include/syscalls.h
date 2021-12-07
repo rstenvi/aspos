@@ -27,14 +27,15 @@
 #define SYS_SET_USER    23
 #define SYS_GET_USER    24
 #define SYS_GET_FILTER  25
-#define SYS_SET_FILTER  26
-//#define SYS_PROC_KEEPALIVE 27
-#define SYS_CONF_PROCESS   27
-#define SYS_MMAP        28
+#define SYS_SET_FILTER   26
+#define SYS_CONF_PROCESS 27
+#define SYS_MMAP         28
 #define SYS_MUNMAP      29
 
 #define SYS_WAITPID     30
 #define SYS_GET_PID     31
-#define NUM_SYSCALLS    32
+
+#define SYS_IS_MAPPED   32
+#define NUM_SYSCALLS    33
 
 #endif

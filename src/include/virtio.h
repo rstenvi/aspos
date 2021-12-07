@@ -132,7 +132,7 @@ struct ringbuffer {
 */
 
 struct virtq {
-	uint32_t qsz;
+	int32_t qsz;
 //	uint16_t idx, idx2;
 	ptr_t ringbuffer;
 	int ringc, ringm;
@@ -263,7 +263,7 @@ static inline void vio_write_features(ptr_t base, uint64_t val)	{
 int virtio_complete_init(struct virtio_dev_struct* dev);
 int virtio_virtq_init(struct virtio_dev_struct* dev);
 struct virtq_used* virtq_get_used(struct virtio_dev_struct* dev, int queue);
-ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, uint32_t bytes, uint16_t flags, int queue, bool updateavail, bool chain);
+ptr_t virtq_add_buffer(struct virtio_dev_struct* dev, int bytes, uint16_t flags, int queue, bool updateavail, bool chain);
 int virtq_create_alloc(struct virtio_dev_struct* dev, uint32_t qsz, int pages, int queue);
 int virtio_ack_intr(struct virtio_dev_struct* dev);
 ptr_t virtq_alloc_desc(uint32_t qsz);

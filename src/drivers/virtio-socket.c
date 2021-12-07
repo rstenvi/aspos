@@ -131,7 +131,7 @@ int socket_open(struct vfsopen* o, const char* file, int oflags, int omode)	{
 	return o->fd;
 }
 
-static int _write_target(struct virtio_dev_struct* dev, struct virtio_vsock_hdr* hdr, const void* buf, size_t len)	{
+static int _write_target(struct virtio_dev_struct* dev, struct virtio_vsock_hdr* hdr, const void* buf, uint32_t len)	{
 	ptr_t addr;
 	int alen = len + sizeof(struct virtio_vsock_hdr);
 
@@ -195,10 +195,10 @@ static int _connect_target(struct virtio_dev_struct* dev, struct vsock_opened* v
 	return res;
 }
 static int _listen(struct virtio_dev_struct* dev, struct vsock_opened* vsock)	{
-	int res = OK;
+	//int res = OK;
 	if(vsock->src_port == 0)	return -USER_FAULT;
 	TZALLOC_ERR(hdr, struct virtio_vsock_hdr);
-	ptr_t recv;
+	//ptr_t recv;
 
 	hdr->src_port = vsock->src_port;
 	hdr->src_cid = gvsock.s_cid;
@@ -270,7 +270,7 @@ int socket_read(struct vfsopen* o, void* buf, size_t sz)	{
 		mmu_memcpy(thread_get_user_pgd(vsock->owner), buf, _buf->buffer, res);
 
 		// User might not read whole input
-		if(res < _buf->size)	{
+		if((size_t)res < _buf->size)	{
 			_buf->buffer += res;
 			_buf->size -= res;
 			xifo_push_front(vsock->received, (void*)_buf);
@@ -312,6 +312,7 @@ int socket_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	int res;
 	GET_VFS_DATA(o, struct vsock_opened, vsock);
 	logi("socket write\n");
+	if(sz > INT_MAX)	return -USER_FAULT;
 
 	mutex_acquire(&vsock->lock);
 
@@ -322,7 +323,7 @@ int socket_write(struct vfsopen* o, const void* buf, size_t sz)	{
 	}
 
 	vsock->hdr->op = VIRTIO_VSOCK_OP_RW;
-	res = _write_target(&socketdev, vsock->hdr, buf, sz);
+	res = _write_target(&socketdev, vsock->hdr, buf, (int)sz);
 	//if(res == OK)	res = sz;
 
 	// We don't block on write since there is no confirmation of packet received
@@ -354,7 +355,6 @@ static struct fs_struct virtiosocketdev = {
 };
 
 static int __handle_try_establish(struct virtio_dev_struct* dev, struct virtio_vsock_hdr* hdr, struct vsock_opened* vsock)	{
-	int res;
 	if(hdr->op == VIRTIO_VSOCK_OP_RESPONSE)	{
 		vsock->state = VSOCK_ESTABLISHED;
 
@@ -386,6 +386,7 @@ static int __handle_write(struct virtio_dev_struct* dev, struct virtio_vsock_hdr
 	
 	vsock->job.type = JOB_NONE;
 	vsock->state = VSOCK_ESTABLISHED;
+	return OK;
 }
 
 static int __store_buffer(struct vsock_opened* vsock, void* buf, size_t len)	{
@@ -444,6 +445,9 @@ static int __handle_reset(struct virtio_dev_struct* dev, struct virtio_vsock_hdr
 	switch(vsock->state)	{
 	case VSOCK_TRY_ESTABLISH:
 	case VSOCK_CONNECTED:
+		res = -GENERAL_FAULT;
+		break;
+	default:
 		res = -GENERAL_FAULT;
 		break;
 	}
@@ -581,7 +585,7 @@ int virtio_socket_irq_cb(int irqno)	{
 }
 
 int virtio_socket_init(struct virtio_dev_struct* dev)	{
-	int res, i;
+	int res;
 	virtio_generic_init(dev, VIRTIO_F_GENERIC_SUPPORTED);
 
 	read_guest_cid(dev);
@@ -638,6 +642,6 @@ int virtio_socket_exit(void)	{
 	if(PTR_IS_VALID(gvsock.opened))	{
 		kfree(gvsock.opened);
 	}
-	virtq_destroy_alloc(&socketdev);
+	return virtq_destroy_alloc(&socketdev);
 }
 poweroff_exit(virtio_socket_exit);

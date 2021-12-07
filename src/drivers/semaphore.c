@@ -3,6 +3,7 @@
 
 int semaphore_putchar(struct vfsopen* o, int c);
 int semaphore_open(struct vfsopen* n, const char* name, int flags, int mode);
+int semaphore_close(struct vfsopen* n);
 
 struct semaphore_user {
 	int semcount;
@@ -18,12 +19,23 @@ static struct fs_struct semaphoreuser = {
 	.name = "semaphore",
 	.open = semaphore_open,
 	.putc = semaphore_putchar,
+	.close = semaphore_close,
 	.perm = ACL_PERM(ACL_WRITE, ACL_WRITE, ACL_WRITE),
 };
+int semaphore_close(struct vfsopen* n)	{
+	GET_VFS_DATA(n, struct semaphore_user, u);
+	if(PTR_IS_VALID(u))	{
+		if(PTR_IS_VALID(u->waiting))	{
+			kfree(u->waiting);
+		}
+		kfree(u);
+	}
+	return OK;
+}
 
 int semaphore_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	int ret = OK;
-	struct semaphore_user* u = (struct semaphore_user*)kmalloc( sizeof(struct semaphore_user) );
+	TZALLOC(u, struct semaphore_user);
 	if(PTR_IS_ERR(u))	{
 		ret = -MEMALLOC;
 		goto fail0;
@@ -38,9 +50,6 @@ int semaphore_open(struct vfsopen* n, const char* name, int flags, int mode)	{
 	u->numwaiting = u->maxwaiting = 0;
 	n->data = (void*)u;
 	return n->fd;
-
-fail1:
-	kfree(u);
 fail0:
 	return ret;
 }
@@ -99,7 +108,7 @@ int semaphore_putchar(struct vfsopen* o, int c)	{
 }
 
 int init_semaphore(void)	{
-	device_register(&semaphoreuser);
+	return device_register(&semaphoreuser);
 }
 
 driver_init(init_semaphore);

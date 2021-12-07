@@ -17,6 +17,7 @@ OBJ += network.o
 OBJ += netcat.o
 OBJ += shell.o
 OBJ += fuzzer.o
+OBJ += executor.o
 
 PROGS := $(OBJ:.o=)
 
@@ -32,8 +33,16 @@ netcat.o: CFLAGS += -DLWIP_USER=1
 netcat: EXTRALIBS += -llwip4
 network: EXTRALIBS += -llwip4
 
+# TODO: Still in development, fix eventually
+executor.o: CFLAGS += -Wno-unused-variable
+
 ifdef CONFIG_KCOV
 fuzzer.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+executor.o: CFLAGS := $(filter-out -fsanitize-coverage=trace-pc,$(CFLAGS))
+endif
+
+ifdef CONFIG_KASAN
+executor.o: CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))
 endif
 
 %: %.o

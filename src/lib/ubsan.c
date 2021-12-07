@@ -103,7 +103,7 @@ static const char* ubsan_msgs[] = {
 	"value overflow (+)",
 	"value overflow (-)",
 	"value overflow (/)",
-	"value overflow (%)",
+	"value overflow (P)",
 	"value overflow (*)",
 	"value overflow (~)",
 };
@@ -118,7 +118,7 @@ static void ubsan_pr_post(void)	{
 	}
 }
 static void ubsan_pr_loc(const char* msg, struct source_location* loc)	{
-	bugprintf("UBSAN: %s | %s:%d:%d\n", msg, loc->file_name, loc->line, loc->column);
+	bugprintf("BUG: UBSAN: %s | %s:%d:%d\n", msg, loc->file_name, loc->line, loc->column);
 }
 static void ubsan_pr_type(const char* msg, struct type_descriptor* desc)	{
 	char* type;
@@ -145,33 +145,48 @@ static void handle_overflow(struct overflow_data *data, void *lhs, void *rhs, en
 	ubsan_pr_post();
 }
 
-void __ubsan_handle_add_overflow(struct overflow_data* data, void* lhs, void* rhs)	{
-	handle_overflow(data, lhs, rhs, UBSAN_PLUS);
+void __ubsan_handle_add_overflow(void* data, void* lhs, void* rhs)	{
+	handle_overflow((struct overflow_data*)data, lhs, rhs, UBSAN_PLUS);
 }
-void __ubsan_handle_sub_overflow(struct overflow_data* data, void* lhs, void* rhs)	{
-	handle_overflow(data, lhs, rhs, UBSAN_SUB);
+void __ubsan_handle_sub_overflow(void* data, void* lhs, void* rhs)	{
+	handle_overflow((struct overflow_data*)data, lhs, rhs, UBSAN_SUB);
 }
-void __ubsan_handle_mul_overflow(struct overflow_data* data, void* lhs, void* rhs)	{
-	handle_overflow(data, lhs, rhs, UBSAN_MUL);
+void __ubsan_handle_mul_overflow(void* data, void* lhs, void* rhs)	{
+	handle_overflow((struct overflow_data*)data, lhs, rhs, UBSAN_MUL);
 }
-void __ubsan_handle_negate_overflow(struct overflow_data* data, void* oldval)	{
-	handle_overflow(data, oldval, NULL, UBSAN_NEG);
+void __ubsan_handle_negate_overflow(void* data, void* oldval)	{
+	handle_overflow((struct overflow_data*)data, oldval, NULL, UBSAN_NEG);
 }
-void __ubsan_handle_divrem_overflow(struct overflow_data* data, void* lhs, void* rhs)	{
-	handle_overflow(data, lhs, rhs, UBSAN_REM);
+void __ubsan_handle_divrem_overflow(void* data, void* lhs, void* rhs)	{
+	handle_overflow((struct overflow_data*)data, lhs, rhs, UBSAN_REM);
 }
 /*void __ubsan_handle_type_mismatch(struct type_mismatch_data* data, void* ptr)	{
 
 }*/
-void __ubsan_handle_type_mismatch_v1(struct type_mismatch_data_v1* data, void* ptr)	{
+const char *type_mismatch_kinds[] = {
+    "load of",
+    "store to",
+    "reference binding to",
+    "member access within",
+    "member call on",
+    "constructor call on",
+    "downcast of",
+    "downcast of",
+    "upcast of",
+    "cast to virtual base of",
+};
+void __ubsan_handle_type_mismatch_v1(void* _data, void* ptr)	{
+	struct type_mismatch_data_v1* data = (struct type_mismatch_data_v1*)_data;
 	struct source_location* loc = &(data->location);
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("type mismatch", loc);
 	ubsan_pr_type("type", data->type);
 	bugprintf("UBSAN: log_alignment: %i check_kind: %i\n", data->log_alignment, data->type_check_kind);
+	bugprintf("kind: %s\n", type_mismatch_kinds[data->type_check_kind]);
 	ubsan_pr_post();
 }
-void __ubsan_handle_out_of_bounds(struct out_of_bounds_data* data, void* index)	{
+void __ubsan_handle_out_of_bounds(void* _data, void* index)	{
+	struct out_of_bounds_data* data = (struct out_of_bounds_data*)_data;
 	struct source_location* loc = &(data->location);
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("array out-of-bounds", loc);
@@ -179,7 +194,8 @@ void __ubsan_handle_out_of_bounds(struct out_of_bounds_data* data, void* index)	
 	ubsan_pr_type("index type", data->index_type);
 	ubsan_pr_post();
 }
-void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_data* data, void* lhs, void* rhs) {
+void __ubsan_handle_shift_out_of_bounds(void* _data, void* lhs, void* rhs) {
+	struct shift_out_of_bounds_data* data = (struct shift_out_of_bounds_data*)_data;
 	struct source_location* loc = &(data->location);
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("shift out-of-bounds", loc);
@@ -190,7 +206,8 @@ void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_data* data, v
 /*void __ubsan_handle_builtin_unreachable(struct unreachable_data* data) {
 	while(1);
 }*/
-void __ubsan_handle_load_invalid_value(struct invalid_value_data* data, void* val) {
+void __ubsan_handle_load_invalid_value(void* _data, void* val) {
+	struct invalid_value_data* data = (struct invalid_value_data*)_data;
 	struct source_location* loc = &(data->location);
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("load invalid value", loc);
@@ -198,7 +215,8 @@ void __ubsan_handle_load_invalid_value(struct invalid_value_data* data, void* va
 	bugprintf("UBSAN: val: %p\n", val);
 	ubsan_pr_post();
 }
-void __ubsan_handle_vla_bound_not_positive(struct vla_bound_data *data, void* bound) {
+void __ubsan_handle_vla_bound_not_positive(void* _data, void* bound) {
+	struct vla_bound_data* data = (struct vla_bound_data*)_data;
 	struct source_location* loc = &(data->location);
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("VLA bound", loc);
@@ -206,7 +224,8 @@ void __ubsan_handle_vla_bound_not_positive(struct vla_bound_data *data, void* bo
 	bugprintf("UBSAN: bound: %p\n", bound);
 	ubsan_pr_post();
 }
-void __ubsan_handle_nonnull_arg(struct nonnull_arg_data *data)	{
+void __ubsan_handle_nonnull_arg(void* _data)	{
+	struct nonnull_arg_data* data = (struct nonnull_arg_data*)_data;
 	struct source_location* loc = &(data->location);
 	struct source_location* attr_loc = &(data->attr_location);
 	if(!should_report(loc))	return;
@@ -216,7 +235,8 @@ void __ubsan_handle_nonnull_arg(struct nonnull_arg_data *data)	{
 	ubsan_pr_post();
 }
 
-void __ubsan_handle_pointer_overflow(struct source_location* loc, void* base, void* result)	{
+void __ubsan_handle_pointer_overflow(void* _loc, void* base, void* result)	{
+	struct source_location* loc = (struct source_location*)_loc;
 	if(!should_report(loc))	return;
 	ubsan_pr_loc("ptr overflow", loc);
 //	bugprintf("UBSAN: pointer overflow %p %p %p\n", data, base, result);

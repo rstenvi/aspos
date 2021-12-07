@@ -8,6 +8,7 @@ int new_thread_prep_args(ptr_t*);
 int handle_svc(struct exception* exc)	{
 	int64_t ret = 0;
 	ptr_t sysnum = exc->regs[8];
+	svcid_inc();
 #if defined(CONFIG_SUPPORT_SYSCALL_FILTER)
 	if(!thread_access_valid(sysnum))	{
 		ret = -NO_ACCESS;
@@ -118,12 +119,14 @@ int handle_svc(struct exception* exc)	{
 		case SYS_WAITPID:
 			ret = thread_wait_pid((int)exc->regs[0]);
 			break;
+		case SYS_IS_MAPPED:
+			ret = thread_is_mapped(exc->regs[0]);
+			break;
 		default:
 			logw("Unknown syscall %i\n", sysnum);
 			ret = -1;
 			break;
 	}
-done:
 	exc->regs[0] = ret;
 	return 0;
 }

@@ -19,9 +19,11 @@ OBJ += umem.o
 
 ifdef CONFIG_UBSAN
 OBJ += ubsan-test.o
+ubsan-test.o: CFLAGS := $(filter-out -Werror,$(CFLAGS))
 endif
 
 ifdef CONFIG_KASAN
+kasan-test.o: CFLAGS += -Wno-array-bounds
 OBJ += kasan-test.o
 endif
 

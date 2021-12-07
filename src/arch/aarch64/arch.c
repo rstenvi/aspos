@@ -58,9 +58,9 @@ void arch_intercepted(struct argregs* args)	{
 
 }
 
-ptr_t arch_prepare_thread_stack(void* stacktop, ptr_t entry, ptr_t ustack, bool user)	{
+ptr_t arch_prepare_thread_stack(ptr_t stacktop, ptr_t entry, ptr_t ustack, bool user)	{
 	// Stack pointer must always be aligned on 16 bytes
-	ptr_t nstack = (ptr_t)(stacktop) - sizeof(struct exception);
+	ptr_t nstack = stacktop - sizeof(struct exception);
 	ALIGN_DOWN_POW2(nstack, 16);
 
 	struct exception* e = (struct exception*)nstack;
@@ -94,7 +94,7 @@ int arch_update_after_copy(ptr_t* pgd, ptr_t kstack, ptr_t ustack, ptr_t _kstack
 	return 0;
 }
 
-ptr_t arch_thread_memcpy_stack(ptr_t* pgd, struct exception* e, void* data, int size)	{
+ptr_t arch_thread_memcpy_stack(ptr_t pgd, struct exception* e, void* data, int size)	{
 	ptr_t sp = e->saved_sp;
 	sp -= size;
 	// SP must be aligned on 16-byte boundary
@@ -127,7 +127,7 @@ ptr_t arch_thread_strcpy_stack(struct exception* e, char* str)	{
 	return user_sp;
 }
 
-int arch_thread_set_arg(void* sp, ptr_t arg, int num)	{
+int arch_thread_set_arg(ptr_t sp, ptr_t arg, int num)	{
 	struct exception* e = (struct exception*)sp;
 
 	// No sanity checking here, we assume caller has control
@@ -135,13 +135,13 @@ int arch_thread_set_arg(void* sp, ptr_t arg, int num)	{
 	return 0;
 }
 
-int arch_thread_set_return(void* sp, ptr_t arg)	{
+int arch_thread_set_return(ptr_t sp, ptr_t arg)	{
 	struct exception* e = (struct exception*)sp;
 	e->regs[0] = arg;
 	return 0;
 }
 
-int arch_thread_set_exit(void* sp, ptr_t addr)	{
+int arch_thread_set_exit(ptr_t sp, ptr_t addr)	{
 	struct exception* e = (struct exception*)sp;
 	e->regs[30] = addr;
 	return 0;
@@ -149,6 +149,8 @@ int arch_thread_set_exit(void* sp, ptr_t addr)	{
 
 
 size_t strlen_user(const char* src)	{
+	ASSERT_USER(src);
+	if(!src)	return 0;
 	size_t res = 0;
 	pan_disable();
 	res = strlen(src);
@@ -218,7 +220,7 @@ _PUT_USER(32);
 _PUT_USER(64);
 
 char* strdup_user(const char* src)	{
-	if(!ADDR_USER(src))	return NULL;
+	ASSERT_USER(src);
 	char* ret;
 	size_t len;
 

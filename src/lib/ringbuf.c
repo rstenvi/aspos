@@ -30,8 +30,8 @@ int ringbuf_num_bytes(struct ringbuf* rb)	{
 	return ret;
 }
 
-int ringbuf_write(struct ringbuf* rb, void* from, int size)	{
-	int rsize = MIN(size, (rb->maxlen - rb->lidx));
+int ringbuf_write(struct ringbuf* rb, void* from, size_t size)	{
+	size_t rsize = MIN(size, (rb->maxlen - rb->lidx));
 	memcpy(rb->start + rb->lidx, from, rsize);
 
 	rb->lidx += rsize;
@@ -49,9 +49,9 @@ int ringbuf_write(struct ringbuf* rb, void* from, int size)	{
 	return rsize;
 }
 
-int ringbuf_read(struct ringbuf* rb, void* to, int size)	{
+int ringbuf_read(struct ringbuf* rb, void* to, size_t size)	{
 //	mutex_acquire(&rb->lock);
-	int rsize = MIN(size, (rb->lidx - rb->cidx));
+	size_t rsize = MIN(size, (rb->lidx - rb->cidx));
 	/*
 	* rsize can now be negative for three reasons
 	* 1. The buffer is filled with exactly the max number of bytes, rsize == 0

@@ -14,22 +14,12 @@
 
 #define INPUT_SIMULATED false
 
-#define KCOV_MAX_ENTRIES (1000)
+//#define KCOV_MAX_ENTRIES (1000)
 #define ALLOC_BUFFER     (4096 * 256)
 
-struct kcov_user {
-	int fd;
-	struct kcov_data* data;
-};
-
-struct kcov_user kcov;
 
 ptr_t svc(int sysno, ptr_t* args);
-int _kcov_pre(void);
-void* _kcov_mmap(int fd, bool enable);
-int _kcov_dump(void* addr);
-int generate_program(struct kcov_user* kcov);
-bool _kcov_parse(struct kcov_data* data);
+int generate_program(/*struct kcov_user* kcov*/);
 
 
 struct syscall {
@@ -52,7 +42,8 @@ static inline uint32_t hash(ptr_t v)	{
 }
 
 static ptr_t special_nums[] = {
-	-1,
+	-1, OPEN_FLAG_READ, OPEN_FLAG_WRITE, OPEN_FLAG_RW, OPEN_FLAG_CTRL, OPEN_FLAG_CTRL|OPEN_FLAG_READ,
+
 	// virtio-socket
 	FCNTL_VIRTIO_SET_CID, FCNTL_VIRTIO_SET_DST_PORT, FCNTL_VIRTIO_SET_TARGET,
 	FCNTL_VIRTIO_CONNECT, FCNTL_VIRTIO_LISTEN, FCNTL_VIRTIO_SET_SRC_PORT,
@@ -140,18 +131,9 @@ static ptr_t arg_types[NUM_SYSCALLS] = {
 void* tmp_buffer = NULL;
 void* currptr;
 
-void _kcov_init(struct kcov_user* kcov)	{
-	kcov->fd = _kcov_pre();
-	kcov->data = _kcov_mmap(kcov->fd, false);
 
-}
-
-void _kcov_close(struct kcov_user* kcov)	{
-	munmap(kcov->data);
-	close(kcov->fd);
-}
-
-#define NUM_PROCS (2)
+#define NUM_PROCS (1)
+#define NUM_THREADS (4)
 uint32_t rand_xors[] = {0xdeadbeef, 0xbeefc0de};
 static int curridx;
 static uint32_t frand(void)	{
@@ -168,7 +150,7 @@ void run_fuzzer(int idx)	{
 	seed ^= pid;
 	srandom(seed);
 
-	_kcov_init(&kcov);
+//	_kcov_init(&kcov);
 	tmp_buffer = mmap(NULL, BUFFER_SIZE, MAP_PROT_READ|MAP_PROT_WRITE, MAP_NON_CLONED, -1);
 	memset(tmp_buffer, 0x00, BUFFER_SIZE);
 	currptr = tmp_buffer;
@@ -177,15 +159,17 @@ void run_fuzzer(int idx)	{
 	memset(tmp_buffer, 0x00, BITMAP_SIZE);
 
 	while(true)	{
-		generate_program(&kcov);
+		generate_program();
 	}
-	_kcov_close(&kcov);
+//	_kcov_close(&kcov);
 }
 
 int main(int argc, char* argv[])	{
-	int res, i, pid;
-	int childs[NUM_PROCS];
+	int i;
 
+#if NUM_PROCS > 1
+	int pid;
+	int childs[NUM_PROCS];
 	for(i = 0; i < NUM_PROCS; i++)	{
 		pid = fork();
 		if(!pid)	{
@@ -200,10 +184,21 @@ int main(int argc, char* argv[])	{
 	for(i = 0; i < NUM_PROCS; i++)	{
 		wait_pid(childs[i]);
 	}
+#else
+	int childs[NUM_THREADS];
+	for(i = 0; i < NUM_THREADS; i++)	{
+		childs[i] = new_thread((ptr_t)run_fuzzer, 1, i);
+	}
 
-	return 0;
+	// Wait for all threads to finish
+	for(i = 0; i < NUM_THREADS; i++) { wait_tid(childs[i]); }
+	//run_fuzzer(i);
+#endif
+	printf("Fuzzer done\n");
+
+	poweroff();
+	return OK;
 }
-
 int rand_syscall(void)	{	return frand() % NUM_SYSCALLS; }
 int rand_under(int max)	{	return frand() % max; }
 char* rand_fname(void)	{
@@ -213,7 +208,7 @@ char* rand_fname(void)	{
 }
 ptr_t rand_int(void)	{
 	int r = frand();
-	if((r % 3) == 0)	{
+	if((r % 3) != 0)	{
 		int idx = rand_under(NUM_SPECIALS);
 		return special_nums[idx];
 	}
@@ -224,7 +219,6 @@ ptr_t rand_int(void)	{
 	ret |= r;
 	return ret;
 }
-
 ptr_t rand_buffer(int sysno, ptr_t* len, bool in)	{
 	ptr_t ret = 0;
 	ptr_t _len;
@@ -264,33 +258,28 @@ ptr_t rand_buffer(int sysno, ptr_t* len, bool in)	{
 	ret = (ptr_t)currptr;
 	currptr += _len;
 	
-	if(in && len > 0)	{
+	if(in && *len > 0)	{
 		uint8_t* r = (uint8_t*)ret;
 		ptr_t i;
 		for(i = 0; i < _len; i++)	{
 			r[i] = frand() % 0x100;
 		}
 	}
-	return (len > 0) ? ret : 0;
+	return (*len > 0) ? ret : 0;
 }
 ptr_t rand_flag(int bitmax)	{
 	ptr_t base = rand_int();
-	return (base & ((1 << bitmax+1)-1));
+	return (base & ((1 << (bitmax+1))-1));
 }
 ptr_t rand_resource()	{
 	if(numres <= 0)	return -1;
 
 	int r = frand() % (numres+1);
-	return (r >= numres || r >= MAX_RES) ? -1 : resources[r];
+	return (r >= numres || r >= MAX_RES) ? (ptr_t)-1 : resources[r];
 }
 int rand_fd()	{
 	return rand_resource(resources, numres);
 }
-
-int mutate_syscall(ptr_t sysno, ptr_t* args)	{
-
-}
-
 int print_type(uint8_t type, ptr_t arg, bool prev)	{
 	char* pr = (prev) ? ", " : "";
 	switch(type)	{
@@ -299,7 +288,7 @@ int print_type(uint8_t type, ptr_t arg, bool prev)	{
 			break;
 		case AT_STR:
 		case AT_FNAME:
-			(arg) ? printf("%s\"%s\"", pr, arg) : printf("%sNULL", pr);
+			(arg) ? printf("%s\"%s\"", pr, (char*)arg) : printf("%sNULL", pr);
 			break;
 		case AT_BUFIN:
 			printf("%s&(0x%lx)=", pr, arg);
@@ -369,9 +358,15 @@ bool syscall_valid(int sysno)	{
 	case SYS_NEW_THREAD:	// Should enable later
 	case SYS_WAIT_TID:
 	case SYS_FORK:
-	case SYS_MUNMAP:
+//	case SYS_MUNMAP:
 	case SYS_MMAP:
-	case SYS_GET_TID:
+//	case SYS_GET_TID:
+	case SYS_SET_USER:
+	case SYS_SET_FILTER:
+//	case SYS_FSTAT:
+//	case SYS_SBRK:
+//	case SYS_CONF_THREAD:
+//	case SYS_GET_USER:
 		return false;
 	}
 	return true;
@@ -388,7 +383,7 @@ void save_resource(ptr_t res)	{
 ptr_t filter_fd(ptr_t _fd)	{
 	// fd = 3 is for kasan file pointer
 	int fd = (int)_fd;
-	return (fd == STDOUT || fd == STDIN || fd == STDERR || fd == 3 || fd == kcov.fd) ? -1 : fd;
+	return (fd == STDOUT || fd == STDIN || fd == STDERR || fd == 3 /*|| fd == kcov.fd*/) ? -1 : fd;
 }
 
 #define B_ARG_0 (1 << 0)
@@ -399,10 +394,9 @@ ptr_t filter_fd(ptr_t _fd)	{
 #define B_ARG_5 (1 << 5)
 #define B_ARG_6 (1 << 6)
 #define B_ARG_7 (1 << 7)
-int generate_syscall(struct kcov_user* kcov)	{
+int generate_syscall(/*struct kcov_user* kcov*/)	{
 	ptr_t args[8] = {0};
-	int sysno = rand_syscall(), i, res, t;
-	uint8_t filled = 0;
+	int sysno = rand_syscall(), i, res = OK, t;
 	
 	if(!syscall_valid(sysno))	return -1;
 
@@ -457,14 +451,25 @@ int generate_syscall(struct kcov_user* kcov)	{
 
 	if((long)ans > 0)	save_resource(ans);
 
-	return 0;
-err1:
 	return res;
 }
 
-int generate_program(struct kcov_user* kcov)	{
-	while(generate_syscall(kcov) < 0) { }
+int generate_program(/*struct kcov_user* kcov*/)	{
+	while(generate_syscall() < 0) { }
+	return OK;
 }
+/*
+struct kcov_user {
+	int fd;
+	struct kcov_data* data;
+};
+struct kcov_user kcov;
+
+bool _kcov_parse(struct kcov_data* data);
+int _kcov_pre(void);
+void* _kcov_mmap(int fd, bool enable);
+int _kcov_dump(void* addr);
+
 
 int _kcov_pre(void)	{
 	int fd, res;
@@ -514,3 +519,13 @@ bool _kcov_parse(struct kcov_data* data)	{
 	WRITE_ONCE(data->currcount, 0);
 	return interest;
 }
+void _kcov_init(struct kcov_user* kcov)	{
+	kcov->fd = _kcov_pre();
+	kcov->data = _kcov_mmap(kcov->fd, false);
+
+}
+void _kcov_close(struct kcov_user* kcov)	{
+	munmap(kcov->data);
+	close(kcov->fd);
+}
+*/

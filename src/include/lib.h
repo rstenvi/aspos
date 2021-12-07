@@ -7,8 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include "types.h"
 #include "acl.h"
+#include "vfs.h"
 
 #define CONFIG_USER_THREAD_INFO 1
 
@@ -19,11 +21,14 @@
 
 
 #define __force_inline __attribute__((always_inline))
+#define __noreturn __attribute__((noreturn))
+#define __unusedvar __attribute__((unused))
 
 #define FLAG_SET(val,flag) ((val & flag) == flag)
 
 //#define GET_ALIGNED_UP_POW2(num,val) (num + (val-1) & ((1<<val)-1))
-#define GET_ALIGNED_UP_POW2(num,val) (num + (val-1) & ~((val-1)))
+
+#define GET_ALIGNED_UP_POW2(num,val) ((num + (val-1)) & ~(val-1))
 #define GET_ALIGNED_DOWN_POW2(num,val) (num & (~((val-1))))
 #define IS_ALIGNED_POW2(val) ((val & (val - 1)) == 0)
 #define ALIGN_UP_POW2(num,val) { if(num == 0)	num = val; if((num % val) != 0)	{ num |= (val - 1); num++; } }
@@ -37,10 +42,11 @@
 
 #define PTR_ALIGNED(va) PTR_ALIGNED8(va)
 
-#define MIN(a,b) ((a < b) ? a : b)
-#define MAX(a,b) ((a > b) ? a : b)
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#define MAX(a,b) (((a) > (b)) ? (a) : (b))
 
 #define ALIGNED_PAGE(num) (GET_ALIGNED_DOWN_POW2(num, PAGE_SIZE) == num)
+#define IS_ALIGNED_ON(num,align) (GET_ALIGNED_DOWN_POW2(num,align) == num)
 #define GET_ALIGNED_PAGE_UP(num) GET_ALIGNED_UP_POW2(num, PAGE_SIZE)
 #define GET_ALIGNED_PAGE_DOWN(num) GET_ALIGNED_DOWN_POW2(num, PAGE_SIZE)
 
@@ -153,7 +159,7 @@ struct vec_item {
 };
 struct Vec {
 	mutex_t lock;
-	uint32_t citems, aitems;
+	int citems, aitems;
 	struct vec_item* items;
 };
 struct Vec* vec_init(size_t items);
@@ -172,6 +178,7 @@ struct XIFO {
 };
 
 #define __no_ubsan __attribute__((no_sanitize("undefined")))
+#define __no_asan __attribute__((no_sanitize("address")))
 #define __utext __attribute__((__section__(".user.text")))
 #define __udata __attribute__((__section__(".user.data")))
 
@@ -189,16 +196,16 @@ static inline void* xalloc(size_t sz) {
 
 
 // -------------------------- bitmap.c ----------------------- //
-int bm_create_fixed(struct bm* bm, ptr_t addr, unsigned long bytes);
+int bm_create_fixed(struct bm* bm, ptr_t addr, size_t bytes);
 struct bm* bm_create(unsigned long bytes);
 signed long bm_get_first(struct bm* bm);
-void bm_clear(struct bm* bm, long idx);
-void bm_set(struct bm* bm, int from, int to);
-signed long bm_get_first_num(struct bm* bm, int num);
-bool bm_index_free(struct bm* bm, int idx);
-bool bm_index_taken(struct bm* bm, int idx);
+void bm_clear(struct bm* bm, size_t idx);
+void bm_set(struct bm* bm, size_t from, size_t to);
+signed long bm_get_first_num(struct bm* bm, size_t num);
+bool bm_index_free(struct bm* bm, size_t idx);
+bool bm_index_taken(struct bm* bm, size_t idx);
 void bm_delete(struct bm* bm);
-void bm_clear_nums(struct bm* bm, long idx, int count);
+void bm_clear_nums(struct bm* bm, size_t idx, int count);
 
 // ------------------------ xifo.c ---------------------------- //
 int xifo_init(struct XIFO* xifo, size_t max, size_t increment);
@@ -211,7 +218,7 @@ void* xifo_peep_front(struct XIFO* xifo);
 void* xifo_peep_back(struct XIFO* xifo);
 size_t xifo_count(struct XIFO* xifo);
 void* xifo_search(struct XIFO* xifo, void* val, bool (*search)(void*,void*));
-void* xifo_item(struct XIFO* xifo, int idx);
+void* xifo_item(struct XIFO* xifo, size_t idx);
 void xifo_delete(struct XIFO* xifo);
 
 #define XIFO_LOCK(xifo)   mutex_acquire(&xifo->lock);
@@ -232,6 +239,7 @@ void* tlist_more_zero(struct tlist* t);
 int tlist_add(struct tlist* t, void* data, int64_t ticks);
 int tlist_empty(struct tlist* list);
 void tlist_delete(struct tlist* tl);
+int tlist_remove(struct tlist* t, void* remove);
 
 // ----------------------------- spinlock.c ------------------- //
 
@@ -239,7 +247,7 @@ int mutex_acquire(volatile uint8_t* lock);
 int mutex_try_acquire(volatile uint8_t* lock);
 int mutex_release(volatile uint8_t* lock);
 int mutex_clear(volatile uint8_t* lock);
-
+bool mutex_held(mutex_t lock);
 
 
 
@@ -278,8 +286,8 @@ struct ringbuf {
 };
 
 struct ringbuf* ringbuf_alloc(size_t sz);
-int ringbuf_read(struct ringbuf* rb, void* to, int size);
-int ringbuf_write(struct ringbuf* rb, void* from, int size);
+int ringbuf_read(struct ringbuf* rb, void* to, size_t size);
+int ringbuf_write(struct ringbuf* rb, void* from, size_t size);
 void ringbuf_delete(struct ringbuf* rb);
 
 // ----------------------- semaphore.c ------------------------ //
@@ -321,6 +329,7 @@ int wait_tid(int tid);
 int wait_pid(int pid);
 int get_tid(void);
 int getpid(void);
+int is_mapped(ptr_t);
 int conf_thread(ptr_t,ptr_t);
 int conf_process(ptr_t,ptr_t);
 int poweroff(void);
@@ -385,6 +394,7 @@ ssize_t pwritev2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int 
 
 #define PROC_KEEPALIVE         (100)
 #define PROC_STORE_THREAD_INFO (101)
+#define PROC_CREATE_BUSYLOOP   (102)
 
 
 #define CONSOLE_FCNTL_MODE (1)
@@ -393,6 +403,7 @@ enum CHARDEV_MODE {
 	CHAR_MODE_BYTE = 0,
 	CHAR_MODE_LINE,
 	CHAR_MODE_LINE_ECHO,
+	CHAR_MODE_BINARY,
 	CHAR_MODE_LAST,
 };
 
@@ -426,10 +437,6 @@ enum CHARDEV_MODE {
 	(size << FCNTL_SIZE_OFFSET) | \
 	(num << FCNTL_NUM_OFFSET)
 
-//	ASSERT(num < (1<<(FCNTL_DIR_OFFSET - FCNTL_NUM_OFFSET))) \
-//	ASSERT(magic < (1<<(FCNTL_NUM_OFFSET-FCNTL_MAGIC_OFFSET))) \
-//	ASSERT(size < _FCNTL_MAX_SIZE) 
-
 #define FCNTL_ID_PTR_IN(num,magic,size)  _FCNTL_ID(1,1,magic,size,num)
 #define FCNTL_ID_PTR_OUT(num,magic,size) _FCNTL_ID(1,0,magic,size,num)
 #define FCNTL_ID_IN(num,magic,size)      _FCNTL_ID(0,1,magic,size,num)
@@ -437,6 +444,9 @@ enum CHARDEV_MODE {
 #define FCNTL_ID(num,magic)              _FCNTL_ID(0,0,magic,0,num)
 
 
+#define IPC_MAGIC 'i'
+#define IPC_FREE  FCNTL_ID(1, IPC_MAGIC)
+#define IPC_ALLOC FCNTL_ID(2, IPC_MAGIC)
 
 
 #define CUSE_MAGIC  'c'
@@ -446,6 +456,7 @@ enum CHARDEV_MODE {
 #define CUSE_DETACH         FCNTL_ID(4, CUSE_MAGIC)
 #define CUSE_SET_FUNC_EMPTY FCNTL_ID_IN(5, CUSE_MAGIC, sizeof(int))
 #define CUSE_MOUNT          FCNTL_ID_PTR_IN(6, CUSE_MAGIC, 0)
+#define CUSE_SVC_DONE       FCNTL_ID_IN(7, CUSE_MAGIC, sizeof(int))
 
 
 #define FCNTL_SHARED_MAGIC 'f'
@@ -528,13 +539,16 @@ void panic(const char*, const char*, int);
 # define ASSERT_VALID_PTR(ptr) ASSERT_FALSE(PTR_IS_ERR(ptr), "ptr invalid")
 # define BUG_ASSERT ASSERT
 # define ASSERT_USER(u) \
-   BUG_ASSERT(ADDR_USER(u))
+	BUG_ASSERT(PTR_IS_VALID(u)) \
+	BUG_ASSERT(ADDR_USER(u))
 
 # define ASSERT_USER_MEM(u,len) \
+   BUG_ASSERT(PTR_IS_VALID(u)) \
    BUG_ASSERT(ADDR_USER(u)) \
    BUG_ASSERT(ADDR_USER((ptr_t)u + len))
 
 # define ASSERT_KERNEL(k) \
+   BUG_ASSERT(PTR_IS_VALID(k)) \
    BUG_ASSERT(ADDR_KERNEL(k))
 
 # define ASSERT_KERNEL_MEM(k,len) \
@@ -570,6 +584,11 @@ void panic(const char*, const char*, int);
 */
 #define MAP_LAZY_ALLOC (1 << 1)
 
+/**
+* Allocate memory shared between user- and kernel-mode
+*/
+#define MAP_ALLOC_SHARED (1 << 2)
+
 #if defined(CONFIG_KASAN)
 #include "kasan.h"
 void kasan_malloc(void* addr, size_t size);
@@ -603,6 +622,13 @@ __force_inline static inline void* kcalloc(size_t nmemb, size_t size)	{
 */
 __force_inline static inline void kfree(void* addr)	{
 	if(addr == NULL)	return;
+
+#ifndef UMODE
+	if(PTR_IS_ERR(addr))	{
+		//loge("free pointer: %p\n", addr);
+		PANIC("free pointer is invalid\n");
+	}
+#endif
 #if defined(CONFIG_KASAN)
 	// kasan is responsible for free-ing the data
 	kasan_free(addr);

@@ -13,7 +13,7 @@ struct user_thread_info threadinfo = {0};
 #endif
 
 //#define CONFIG_CREATE_THREAD_EXIT 1
-//#define CONFIG_CREATE_DEV_NULL    1
+#define CONFIG_CREATE_DEV_NULL    1
 
 #if CONFIG_CREATE_THREAD_EXIT
 void _exception_exit(int);
@@ -22,6 +22,12 @@ void _exception_exit(int);
 #if CONFIG_INIT_RANDOM_SEED
 static void _seed_random(void);
 #endif
+
+void busyloop(void)	{
+	while(1)	{
+		yield();
+	}
+}
 
 void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	/*
@@ -37,6 +43,8 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 
 	err = dup(out);
 	if(err != 2)	_exit(err);
+
+	conf_process(PROC_CREATE_BUSYLOOP, (ptr_t)busyloop);
 
 #ifdef CONFIG_KASAN
 	kasan_init();
@@ -65,13 +73,17 @@ void _start(uint64_t argc, uint64_t argv, uint64_t envp) {
 	conf_thread(THREAD_CONF_EXC_EXIT, (ptr_t)_exception_exit);
 #endif
 #if CONFIG_CREATE_DEV_NULL
-	int fdnull = init_dev_null(true);
+	int fdnull = init_dev_null(false);
 	if(fdnull < 0)	{
 		_exit(fdnull);
 	}
 #endif
 
     int ex = main(argc, argv, envp);
+
+#if CONFIG_CREATE_DEV_NULL
+	close(fdnull);
+#endif
 #ifdef CONFIG_KASAN
 	kasan_print_allocated();
 #endif

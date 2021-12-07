@@ -62,7 +62,7 @@ int timer_irq_cb(int irqno)	{
 
 int init_timer(void)	{
 	logi("init timer\n");
-	int count, res;
+	int count, res = OK;
 	struct dtb_node* timer = dtb_find_name("timer", true, 0);
 	ASSERT_FALSE(PTR_IS_ERR(timer), "Unable to find timer DTB object");
 
@@ -87,7 +87,7 @@ int init_timer(void)	{
 
 	timer_reconf();
 
-	return 0;
+	return res;
 }
 
 driver_init(init_timer);

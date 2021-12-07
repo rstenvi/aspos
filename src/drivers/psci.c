@@ -8,6 +8,7 @@
 #define PSCI_POWEROFF 0x84000008
 #define PSCI_CPU_ON   0x84000003
 
+extern uint64_t cpustackptr;
 typedef ptr_t (*psci_method_t)();
 
 ptr_t hvc();
@@ -21,20 +22,28 @@ struct psci_struct	{
 static struct psci_struct psci;
 extern struct os_data osdata;
 
+// static int psci_version()	{
+// 	ptr_t version = hvc(PSCI_VERSION);
+// 	logi("PSCI version | major: %i minor: %i\n",
+// 		(version & 0xffff0000) >> 16, (version & 0xffff));
+// 	return (int)version;
+// }
 
-static int psci_version()	{
-	ptr_t version = hvc(PSCI_VERSION);
-	logi("PSCI version | major: %i minor: %i\n",
-		(version & 0xffff0000) >> 16, (version & 0xffff));
-}
-
-void psci_poweroff(void)	{
+__noreturn void psci_poweroff(void)	{
 	psci.method(PSCI_POWEROFF);
+
+	loge("Poweroff was unsuccessful\n");
+	while(1);
 }
 
 int psci_cpu_on(int cpuid, ptr_t entry)	{
+	// TODO: The stack parameter is not passed to us when running under trusted firmware
+	// The registers are cleared when entering trusted mode, so not on us
 	ptr_t stack = vmmap_alloc_pages(CONFIG_KERNEL_STACK_BLOCKS, PROT_RW, VMMAP_FLAG_NONE);
+	cpustackptr = stack + (CONFIG_KERNEL_STACK_BLOCKS * PAGE_SIZE);
 	psci.method(PSCI_CPU_ON, cpuid, entry, stack + (CONFIG_KERNEL_STACK_BLOCKS * PAGE_SIZE));
+
+	return 0;
 }
 
 int init_psci(void)	{

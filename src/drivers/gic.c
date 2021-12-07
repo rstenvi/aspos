@@ -226,24 +226,15 @@ static int gic_max_interrupts(ptr_t base)	{
 	return (32 * (r+1));
 }
 
-static bool gic_probe_pending(int irq)	{
-	uint32_t val;
-	DMAR32((ptr_t)gic_struct.gicd_base + GICD_ISPENDR + ((irq / 32) * 4), val);
-	return ( (val & (1 << (irq % 32))) != 0);
-}
+// static bool gic_probe_pending(int irq)	{
+// 	uint32_t val;
+// 	DMAR32((ptr_t)gic_struct.gicd_base + GICD_ISPENDR + ((irq / 32) * 4), val);
+// 	return ( (val & (1 << (irq % 32))) != 0);
+// }
 
 int gic_find_pending(void)	{
 	uint32_t r = DMAR32(gic_struct.gicc_base + GICC_OFF_IAR, r);
 	return (r & 0b1111111111);
-	/*
-	int irq = 0;
-	for(irq = 0; irq < 64; irq++)	{
-		if(gic_probe_pending(irq) == true)	{
-			return irq;
-		}
-	}
-	return -1;
-	*/
 }
 
 int gic_register_cb(int irqno, gic_cb cb)	{
@@ -283,10 +274,10 @@ int gic_send_sgi_cpu(int irqno, int cpuid)	{
 }
 
 int init_gicd(void)	{
-	int res, count;
+	int res;
 	ptr_t gicd_base, gicd_len, gicc_base, gicc_len;
 
-	uint32_t* regs;
+	//uint32_t* regs;
 	struct dtb_node* gic = dtb_find_name("intc@", false, 0);
 	ASSERT_FALSE(PTR_IS_ERR(gic), "Unable to find gic DTB object");
 
@@ -298,13 +289,11 @@ int init_gicd(void)	{
 	res = dtb_get_as_reg(gic, 0, &gicd_base, &gicd_len);
 	res = dtb_get_as_reg(gic, 1, &gicc_base, &gicc_len);
 
-	mmu_map_dma(gicd_base, gicd_base + gicd_len);
-	mmu_map_dma(gicc_base, gicc_base + gicc_len);
+	gic_struct.gicd_base = mmu_map_dma(gicd_base, gicd_base + gicd_len);
+	gic_struct.gicc_base = mmu_map_dma(gicc_base, gicc_base + gicc_len);
 
 	gic_struct.numcbs = 0;
 	gic_struct.callbacks = NULL;
-	gic_struct.gicd_base = cpu_linear_offset() + gicd_base;
-	gic_struct.gicc_base = cpu_linear_offset() + gicc_base;
 
 	res = _gicd_init(gic_struct.gicd_base, gic_max_interrupts(gic_struct.gicd_base), QEMU_GIC_INTNO_SPIO, QEMU_GIC_INTNO_PPIO);
 	return res;

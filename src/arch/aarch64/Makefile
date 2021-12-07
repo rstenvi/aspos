@@ -1,6 +1,9 @@
 include $(CROOT)/config.mk
 
 IMAGE_LOAD ?= 0x40080000
+#IMAGE_LOAD = 0x60000000
+
+CFLAGS += -DIMAGE_LOAD=$(IMAGE_LOAD)
 
 OBJ = crt0.o
 OBJ += vectors.o
@@ -11,6 +14,9 @@ OBJ += arch.o
 OBJ += cpu_reset.o
 OBJ += cpu_features.o
 OBJ += svc.o
+
+# All access to the tables generate array-bounds errors
+mmu.o: CFLAGS += -Wno-array-bounds
 
 ifdef CONFIG_KASAN
 CFLAGS := $(filter-out -fsanitize=kernel-address,$(CFLAGS))

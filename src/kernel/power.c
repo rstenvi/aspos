@@ -23,7 +23,7 @@ void _poweroff_cleanup(void)	{
 #endif
 
 }
-void kern_poweroff(bool force)	{
+__noreturn void kern_poweroff(bool force)	{
 	if(!force)	_poweroff_cleanup();
 
 	if(osdata.cpus.poweroff == NULL)	PANIC("Poweroff has not been configured\n");
